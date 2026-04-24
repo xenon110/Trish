@@ -66,5 +66,22 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<key>NSCameraUsageDescription</key>
+	<string>Trish needs access to your camera to take profile photos and moments.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Trish needs access to your photo library to upload profile photos and moments.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Trish uses your location to help you find matches nearby and auto-fill your profile location.</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>io.supabase.trish</string>
+			</array>
+		</dict>
+	</array>
 </dict>
 </plist>

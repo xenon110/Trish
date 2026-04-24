@@ -3,6 +3,8 @@ import '../../core/theme.dart';
 import '../../core/constants.dart';
 import '../../core/gift_service.dart';
 import 'gift_history_screen.dart';
+import '../../core/auth_service.dart';
+import '../../models/user_profile.dart';
 
 class AddGiftScreen extends StatefulWidget {
   const AddGiftScreen({super.key});
@@ -12,25 +14,42 @@ class AddGiftScreen extends StatefulWidget {
 }
 
 class _AddGiftScreenState extends State<AddGiftScreen> {
-  int _selectedGiftIndex = -1;
-  Map<String, String>? _selectedUser;
-  final TextEditingController _messageController = TextEditingController();
-
+  final AuthService _authService = AuthService();
   final List<Map<String, dynamic>> _availableGifts = [
-    {'emoji': '🌹', 'name': 'Rose', 'price': 10, 'rating': 4.8},
-    {'emoji': '🍫', 'name': 'Chocolate', 'price': 20, 'rating': 4.9},
-    {'emoji': '🎁', 'name': 'Teddy', 'price': 50, 'rating': 4.7},
-    {'emoji': '💎', 'name': 'Diamond', 'price': 100, 'rating': 5.0},
-    {'emoji': '☕', 'name': 'Coffee', 'price': 15, 'rating': 4.6},
-    {'emoji': '🥂', 'name': 'Cheers', 'price': 30, 'rating': 4.8},
+    {'emoji': '🌹', 'name': 'Rose', 'price': 10},
+    {'emoji': '🎁', 'name': 'Gift Box', 'price': 50},
+    {'emoji': '🍫', 'name': 'Chocolate', 'price': 30},
+    {'emoji': '💎', 'name': 'Diamond', 'price': 100},
+    {'emoji': '🧸', 'name': 'Teddy Bear', 'price': 80},
+    {'emoji': '☕', 'name': 'Coffee', 'price': 20},
   ];
+  int _selectedGiftIndex = -1;
+  UserProfile? _selectedUser;
+  final TextEditingController _messageController = TextEditingController();
+  List<UserProfile> _availableUsers = [];
+  bool _isUsersLoading = true;
 
-  final List<Map<String, String>> _dummyUsers = [
-    {'name': 'Ankit Sharma', 'image': AppConstants.defaultAvatar1},
-    {'name': 'Priya Singh', 'image': AppConstants.defaultAvatar2},
-    {'name': 'Rahul Verma', 'image': AppConstants.defaultAvatar3},
-    {'name': 'Neha Kapoor', 'image': AppConstants.defaultAvatar2},
-  ];
+  @override
+  void initState() {
+    super.initState();
+    _loadUsers();
+  }
+
+  Future<void> _loadUsers() async {
+    try {
+      final users = await _authService.getProfiles();
+      if (mounted) {
+        setState(() {
+          _availableUsers = users;
+          _isUsersLoading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isUsersLoading = false);
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -172,11 +191,11 @@ class _AddGiftScreenState extends State<AddGiftScreen> {
             if (_selectedUser != null) ...[
               CircleAvatar(
                 radius: 20,
-                backgroundImage: NetworkImage(_selectedUser!['image']!),
+                backgroundImage: NetworkImage(_selectedUser!.avatarUrl ?? AppConstants.defaultAvatar1),
               ),
               const SizedBox(width: 12),
               Text(
-                _selectedUser!['name']!,
+                _selectedUser!.fullName,
                 style: const TextStyle(color: Color(0xFF2C2C2E), fontSize: 16, fontWeight: FontWeight.bold),
               ),
             ] else ...[
@@ -236,21 +255,29 @@ class _AddGiftScreenState extends State<AddGiftScreen> {
               ),
               const SizedBox(height: 20),
               Expanded(
-                child: ListView.builder(
-                  itemCount: _dummyUsers.length,
-                  itemBuilder: (context, index) {
-                    final user = _dummyUsers[index];
-                    return ListTile(
-                      contentPadding: const EdgeInsets.symmetric(vertical: 8),
-                      leading: CircleAvatar(radius: 24, backgroundImage: NetworkImage(user['image']!)),
-                      title: Text(user['name']!, style: const TextStyle(fontWeight: FontWeight.bold)),
-                      onTap: () {
-                        setState(() => _selectedUser = user);
-                        Navigator.pop(context);
-                      },
-                    );
-                  },
-                ),
+                child: _isUsersLoading
+                    ? const Center(child: CircularProgressIndicator())
+                    : _availableUsers.isEmpty
+                        ? const Center(child: Text('No users found'))
+                        : ListView.builder(
+                            itemCount: _availableUsers.length,
+                            itemBuilder: (context, index) {
+                              final user = _availableUsers[index];
+                              return ListTile(
+                                contentPadding: const EdgeInsets.symmetric(vertical: 8),
+                                leading: CircleAvatar(
+                                  radius: 24,
+                                  backgroundImage: NetworkImage(user.avatarUrl ?? AppConstants.defaultAvatar1),
+                                ),
+                                title: Text(user.fullName, style: const TextStyle(fontWeight: FontWeight.bold)),
+                                subtitle: Text(user.goal ?? 'No goal set'),
+                                onTap: () {
+                                  setState(() => _selectedUser = user);
+                                  Navigator.pop(context);
+                                },
+                              );
+                            },
+                          ),
               ),
             ],
           ),
@@ -300,7 +327,7 @@ class _AddGiftScreenState extends State<AddGiftScreen> {
       builder: (context) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
         title: const Text('Confirm Gift', style: TextStyle(fontWeight: FontWeight.w800)),
-        content: Text('Send ${gift['emoji']} ${gift['name']} to ${_selectedUser!['name']} for ₹${gift['price']}?'),
+        content: Text('Send ${gift['emoji']} ${gift['name']} to ${_selectedUser!.fullName} for ₹${gift['price']}?'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
           TextButton(
@@ -320,12 +347,12 @@ class _AddGiftScreenState extends State<AddGiftScreen> {
     final tx = GiftTransaction(
       id: DateTime.now().millisecondsSinceEpoch.toString(),
       icon: gift['emoji'],
-      title: 'Sent ${gift['name']} to ${_selectedUser!['name']}',
+      title: 'Sent ${gift['name']} to ${_selectedUser!.fullName}',
       amount: gift['price'],
       type: 'Sent',
       timestamp: 'Just now',
-      userName: _selectedUser!['name'],
-      userImage: _selectedUser!['image'],
+      userName: _selectedUser!.fullName,
+      userImage: _selectedUser!.avatarUrl ?? AppConstants.defaultAvatar1,
       message: _messageController.text,
     );
 

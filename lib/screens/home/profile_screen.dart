@@ -8,12 +8,48 @@ import 'main_navigation_screen.dart';
 import 'my_wallet_screen.dart';
 import 'edit_profile_screen.dart';
 import 'moments_screen.dart';
+import '../../core/auth_service.dart';
 
-class ProfileScreen extends StatelessWidget {
+class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
 
   @override
+  State<ProfileScreen> createState() => _ProfileScreenState();
+}
+
+class _ProfileScreenState extends State<ProfileScreen> {
+  final AuthService _authService = AuthService();
+
+  @override
   Widget build(BuildContext context) {
+    final user = _authService.currentUser;
+    final metadata = user?.userMetadata;
+    
+    final fullName = metadata?['full_name'] ?? 'User';
+    final firstName = fullName.split(' ').first;
+    final bio = metadata?['bio'] ?? 'Tell us about yourself in your profile settings.';
+    
+    List<String> interests = [];
+    final interestsData = metadata?['interests'];
+    if (interestsData is List) {
+      interests = List<String>.from(interestsData);
+    } else {
+      interests = ['Photography', 'Dogs', 'Coffee'];
+    }
+
+    List<String> moments = [];
+    final momentsData = metadata?['moments'];
+    if (momentsData is List) {
+      moments = List<String>.from(momentsData);
+    }
+
+    final age = metadata?['age'] ?? 18;
+    final location = metadata?['location'] ?? 'Unknown';
+    final gender = metadata?['gender'] ?? 'Man';
+    final hobby = metadata?['hobby'] ?? 'Photography';
+    final avatarUrl = metadata?['avatar_url'];
+    final goal = metadata?['goal'] ?? 'Meaningful connection';
+
     return Scaffold(
       backgroundColor: const Color(0xFFFCFAFA),
       body: SafeArea(
@@ -21,17 +57,17 @@ class ProfileScreen extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 24.0),
           child: Column(
             children: [
-              _buildHeader(context),
+              _buildHeader(context, avatarUrl),
               const SizedBox(height: 32),
-              _buildProfileCard(),
+              _buildProfileCard(fullName, interests, age, location, gender, hobby, avatarUrl),
               const SizedBox(height: 32),
-              _buildAboutSection(),
+              _buildAboutSection(firstName, bio),
               const SizedBox(height: 32),
-              _buildGallerySection(context),
+              _buildGallerySection(context, moments),
               const SizedBox(height: 32),
-              _buildVibeSection(),
+              _buildVibeSection(goal),
               const SizedBox(height: 32),
-              _buildStrengthCard(),
+              _buildStrengthCard(moments.length),
               const SizedBox(height: 24),
               _buildMenuItem(context, Icons.edit_note_rounded, 'Edit Profile', 'Update photos, bio, and interests'),
               _buildMenuItem(context, Icons.account_balance_wallet_rounded, 'Wallet', 'Manage balance and transactions'),
@@ -48,7 +84,7 @@ class ProfileScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildHeader(BuildContext context) {
+  Widget _buildHeader(BuildContext context, String? avatarUrl) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 16.0),
       child: Row(
@@ -67,9 +103,11 @@ class ProfileScreen extends StatelessWidget {
                 constraints: const BoxConstraints(),
               ),
               const SizedBox(width: 12),
-              const CircleAvatar(
+              CircleAvatar(
                 radius: 20,
-                backgroundImage: AssetImage('assets/image/connection.jpg'),
+                backgroundImage: avatarUrl != null 
+                    ? NetworkImage(avatarUrl) 
+                    : const AssetImage('assets/image/connection.jpg') as ImageProvider,
               ),
             ],
           ),
@@ -88,7 +126,7 @@ class ProfileScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildProfileCard() {
+  Widget _buildProfileCard(String fullName, List<String> interests, dynamic age, String location, String gender, String hobby, String? avatarUrl) {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(32),
@@ -111,41 +149,45 @@ class ProfileScreen extends StatelessWidget {
               Container(
                 padding: const EdgeInsets.all(4),
                 decoration: const BoxDecoration(color: Color(0xFF2C2C2E), shape: BoxShape.circle),
-                child: const CircleAvatar(
+                child: CircleAvatar(
                   radius: 60,
-                  backgroundImage: AssetImage('assets/image/connection.jpg'),
+                  backgroundImage: avatarUrl != null 
+                      ? NetworkImage(avatarUrl) 
+                      : const AssetImage('assets/image/connection.jpg') as ImageProvider,
                 ),
               ),
               Positioned(
                 bottom: 4,
                 right: 4,
-                child: Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: const BoxDecoration(color: Color(0xFF9D4C5E), shape: BoxShape.circle),
-                  child: const Icon(Icons.edit, color: Colors.white, size: 14),
+                child: GestureDetector(
+                  onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const EditProfileScreen())),
+                  child: Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: const BoxDecoration(color: Color(0xFF9D4C5E), shape: BoxShape.circle),
+                    child: const Icon(Icons.edit, color: Colors.white, size: 14),
+                  ),
                 ),
               ),
             ],
           ),
           const SizedBox(height: 20),
-          const Text(
-            'Sarah Jenkins, 28',
-            style: TextStyle(color: Color(0xFF2C2C2E), fontSize: 24, fontWeight: FontWeight.w800),
+          Text(
+            '$fullName, $age',
+            style: const TextStyle(color: Color(0xFF2C2C2E), fontSize: 24, fontWeight: FontWeight.w800),
           ),
           const SizedBox(height: 4),
-          const Text(
-            'Creative Director & Coffee Enthusiast',
-            style: TextStyle(color: Color(0xFF8E8E93), fontSize: 15, fontWeight: FontWeight.w500),
+          Text(
+            '$gender • $hobby',
+            style: const TextStyle(color: Color(0xFF8E8E93), fontSize: 15, fontWeight: FontWeight.w500),
           ),
           const SizedBox(height: 20),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
+          Wrap(
+            alignment: WrapAlignment.center,
+            spacing: 8,
+            runSpacing: 8,
             children: [
-              _buildTag('Los Angeles'),
-              const SizedBox(width: 8),
-              _buildTag('Photography'),
-              const SizedBox(width: 8),
-              _buildTag('Dogs'),
+              _buildTag(location),
+              ...interests.take(2).map((interest) => _buildTag(interest)),
             ],
           ),
         ],
@@ -167,7 +209,10 @@ class ProfileScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildStrengthCard() {
+  Widget _buildStrengthCard(int momentsCount) {
+    double progress = (momentsCount / 6).clamp(0.0, 1.0);
+    int percentage = (progress * 100).toInt();
+    
     return Container(
       padding: const EdgeInsets.all(32),
       decoration: BoxDecoration(
@@ -183,15 +228,15 @@ class ProfileScreen extends StatelessWidget {
                 width: 80,
                 height: 80,
                 child: CircularProgressIndicator(
-                  value: 0.85,
+                  value: progress == 0 ? 0.1 : progress,
                   strokeWidth: 8,
                   backgroundColor: Colors.white,
                   valueColor: AlwaysStoppedAnimation<Color>(const Color(0xFF9D4C5E).withOpacity(0.6)),
                 ),
               ),
-              const Text(
-                '85%',
-                style: TextStyle(color: Color(0xFF2C2C2E), fontSize: 18, fontWeight: FontWeight.w800),
+              Text(
+                '$percentage%',
+                style: const TextStyle(color: Color(0xFF2C2C2E), fontSize: 18, fontWeight: FontWeight.w800),
               ),
             ],
           ),
@@ -201,9 +246,9 @@ class ProfileScreen extends StatelessWidget {
             style: TextStyle(color: Color(0xFF2C2C2E), fontSize: 17, fontWeight: FontWeight.w800),
           ),
           const SizedBox(height: 4),
-          const Text(
-            'Add more photos to reach 100%',
-            style: TextStyle(color: Color(0xFF8E8E93), fontSize: 13, fontWeight: FontWeight.w500),
+          Text(
+            percentage < 100 ? 'Add more moments to reach 100%' : 'Your profile is looking great!',
+            style: const TextStyle(color: Color(0xFF8E8E93), fontSize: 13, fontWeight: FontWeight.w500),
           ),
         ],
       ),
@@ -212,13 +257,16 @@ class ProfileScreen extends StatelessWidget {
 
   Widget _buildMenuItem(BuildContext context, IconData icon, String title, String subtitle, {String? badge, bool isLast = false}) {
     return GestureDetector(
-      onTap: () {
+      onTap: () async {
         if (title == 'Settings') {
-          Navigator.of(context).push(MaterialPageRoute(builder: (context) => const SettingsScreen()));
+          await Navigator.of(context).push(MaterialPageRoute(builder: (context) => const SettingsScreen()));
+          setState(() {});
         } else if (title == 'Wallet') {
-          Navigator.of(context).push(MaterialPageRoute(builder: (context) => const MyWalletScreen()));
+          await Navigator.of(context).push(MaterialPageRoute(builder: (context) => const MyWalletScreen()));
+          setState(() {});
         } else if (title == 'Edit Profile') {
-          Navigator.of(context).push(MaterialPageRoute(builder: (context) => const EditProfileScreen()));
+          await Navigator.of(context).push(MaterialPageRoute(builder: (context) => const EditProfileScreen()));
+          setState(() {});
         } else if (title == 'Gift') {
           context.findAncestorStateOfType<MainNavigationScreenState>()?.jumpToTab(3);
         } else if (title == 'Matches') {
@@ -284,13 +332,13 @@ class ProfileScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildAboutSection() {
+  Widget _buildAboutSection(String firstName, String bio) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
-          'About Sarah',
-          style: TextStyle(color: Color(0xFF2C2C2E), fontSize: 20, fontWeight: FontWeight.w800),
+        Text(
+          'About $firstName',
+          style: const TextStyle(color: Color(0xFF2C2C2E), fontSize: 20, fontWeight: FontWeight.w800),
         ),
         const SizedBox(height: 16),
         Container(
@@ -300,9 +348,9 @@ class ProfileScreen extends StatelessWidget {
             color: const Color(0xFFF7F7F8),
             borderRadius: BorderRadius.circular(32),
           ),
-          child: const Text(
-            'Digital storyteller by day, analog photographer by night. I believe in meaningful conversations over small talk and the perfect cup of oat milk latte. Looking for someone who can appreciate both a quiet night in and a spontaneous road trip.',
-            style: TextStyle(
+          child: Text(
+            bio,
+            style: const TextStyle(
               color: Color(0xFF6B6B6B),
               fontSize: 15,
               height: 1.6,
@@ -314,12 +362,10 @@ class ProfileScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildGallerySection(BuildContext context) {
-    final List<String> photos = [
-      'https://images.unsplash.com/photo-1516035069371-29a1b244cc32?auto=format&fit=crop&q=80', // Camera
-      'https://images.unsplash.com/photo-1495474472205-51f7d4c09264?auto=format&fit=crop&q=80', // Coffee
-      'https://images.unsplash.com/photo-1518104593124-ac2e69a03975?auto=format&fit=crop&q=80', // Scenic
-      'https://images.unsplash.com/photo-1550684376-efcbd6e3f031?auto=format&fit=crop&q=80', // Art
+  Widget _buildGallerySection(BuildContext context, List<String> moments) {
+    final List<String> photos = moments.isNotEmpty ? moments : [
+      'https://images.unsplash.com/photo-1516035069371-29a1b244cc32?auto=format&fit=crop&q=80',
+      'https://images.unsplash.com/photo-1495474472205-51f7d4c09264?auto=format&fit=crop&q=80',
     ];
 
     return Column(
@@ -333,36 +379,45 @@ class ProfileScreen extends StatelessWidget {
               style: TextStyle(color: Color(0xFF2C2C2E), fontSize: 20, fontWeight: FontWeight.w800),
             ),
             TextButton(
-              onPressed: () {
-                Navigator.of(context).push(MaterialPageRoute(builder: (context) => const MomentsScreen()));
+              onPressed: () async {
+                await Navigator.of(context).push(MaterialPageRoute(builder: (context) => const MomentsScreen()));
+                setState(() {});
               },
               child: const Text('Add More', style: TextStyle(color: Color(0xFF9D4C5E), fontWeight: FontWeight.bold)),
             ),
           ],
         ),
         const SizedBox(height: 12),
-        GridView.builder(
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          itemCount: photos.length,
-          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: 2,
-            crossAxisSpacing: 12,
-            mainAxisSpacing: 12,
-            childAspectRatio: 1.1,
+        if (moments.isEmpty)
+          const Center(
+            child: Padding(
+              padding: EdgeInsets.symmetric(vertical: 20.0),
+              child: Text('No moments uploaded yet.', style: TextStyle(color: Colors.grey)),
+            ),
+          )
+        else
+          GridView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: photos.length,
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 2,
+              crossAxisSpacing: 12,
+              mainAxisSpacing: 12,
+              childAspectRatio: 1.1,
+            ),
+            itemBuilder: (context, index) {
+              return ClipRRect(
+                borderRadius: BorderRadius.circular(24),
+                child: Image.network(photos[index], fit: BoxFit.cover),
+              );
+            },
           ),
-          itemBuilder: (context, index) {
-            return ClipRRect(
-              borderRadius: BorderRadius.circular(24),
-              child: Image.network(photos[index], fit: BoxFit.cover),
-            );
-          },
-        ),
       ],
     );
   }
 
-  Widget _buildVibeSection() {
+  Widget _buildVibeSection(String goal) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -375,11 +430,9 @@ class ProfileScreen extends StatelessWidget {
           spacing: 10,
           runSpacing: 10,
           children: [
-            _buildVibeTag('Authenticity', Icons.auto_awesome_rounded),
+            _buildVibeTag(goal, Icons.auto_awesome_rounded),
+            _buildVibeTag('Authenticity', Icons.favorite_rounded),
             _buildVibeTag('Curiosity', Icons.explore_rounded),
-            _buildVibeTag('Kindness', Icons.favorite_rounded),
-            _buildVibeTag('Stability', Icons.anchor_rounded),
-            _buildVibeTag('Creativity', Icons.brush_rounded),
           ],
         ),
       ],
@@ -413,11 +466,14 @@ class ProfileScreen extends StatelessWidget {
 
   Widget _buildLogoutButton(BuildContext context) {
     return GestureDetector(
-      onTap: () {
-        Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(builder: (context) => const LoginScreen()),
-          (route) => false,
-        );
+      onTap: () async {
+        await _authService.signOut();
+        if (mounted) {
+          Navigator.of(context).pushAndRemoveUntil(
+            MaterialPageRoute(builder: (context) => const LoginScreen()),
+            (route) => false,
+          );
+        }
       },
       child: Container(
         width: 160,

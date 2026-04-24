@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter_card_swiper/flutter_card_swiper.dart';
+import 'package:trish_app/core/auth_service.dart';
 import 'package:trish_app/core/theme.dart';
 import 'package:trish_app/core/constants.dart';
 import 'package:trish_app/core/ui_helpers.dart';
@@ -12,24 +14,12 @@ import 'package:trish_app/screens/home/notifications_screen.dart';
 import 'package:trish_app/screens/home/settings_screen.dart';
 import 'package:trish_app/screens/home/help_support_screen.dart';
 import 'package:trish_app/screens/home/invite_friends_screen.dart';
-
-class DiscoveryProfile {
-  final String id;
-  final String name;
-  final int age;
-  final String location;
-  final String hobby;
-  final String imageUrl;
-
-  DiscoveryProfile({
-    required this.id,
-    required this.name,
-    required this.age,
-    required this.location,
-    required this.hobby,
-    required this.imageUrl,
-  });
-}
+import 'package:trish_app/core/discovery_service.dart';
+import 'package:trish_app/models/user_profile.dart';
+import 'package:trish_app/screens/auth/login_screen.dart';
+import 'package:trish_app/screens/home/global_moments_screen.dart';
+import 'package:trish_app/core/matching_service.dart';
+import 'package:trish_app/screens/home/match_found_overlay.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -40,41 +30,34 @@ class DashboardScreen extends StatefulWidget {
 
 class _DashboardScreenState extends State<DashboardScreen> {
   final CardSwiperController _swiperController = CardSwiperController();
+  final AuthService _authService = AuthService();
+  final DiscoveryService _discoveryService = DiscoveryService();
+  final MatchingService _matchingService = MatchingService();
   
-  final List<DiscoveryProfile> _profiles = [
-    DiscoveryProfile(
-      id: '1',
-      name: 'Jessica',
-      age: 24,
-      location: 'New York, 2 miles away',
-      hobby: 'Photography & Coffee',
-      imageUrl: 'https://images.unsplash.com/photo-1524504388940-b1c1722653e1?auto=format&fit=crop&q=80',
-    ),
-    DiscoveryProfile(
-      id: '2',
-      name: 'Michael',
-      age: 27,
-      location: 'Brooklyn, 5 miles away',
-      hobby: 'Hiking and Outdoors',
-      imageUrl: 'https://images.unsplash.com/photo-1506794778202-b844b4a07d3b?auto=format&fit=crop&q=80',
-    ),
-    DiscoveryProfile(
-      id: '3',
-      name: 'Sarah',
-      age: 23,
-      location: 'Queens, 1 mile away',
-      hobby: 'Art Museums',
-      imageUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80',
-    ),
-    DiscoveryProfile(
-      id: '4',
-      name: 'David',
-      age: 26,
-      location: 'Manhattan, 3 miles away',
-      hobby: 'Live Music',
-      imageUrl: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&q=80',
-    ),
-  ];
+  List<UserProfile> _profiles = [];
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadProfiles();
+  }
+
+  Future<void> _loadProfiles() async {
+    setState(() => _isLoading = true);
+    try {
+      final profiles = await _discoveryService.getDiscoveryProfiles();
+      setState(() {
+        _profiles = profiles;
+        _isLoading = false;
+      });
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isLoading = false);
+        UIHelpers.showSnackBar(context, 'Error loading profiles: $e');
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -86,20 +69,24 @@ class _DashboardScreenState extends State<DashboardScreen> {
             _buildHeader(),
             _buildFilters(),
             Expanded(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 16.0),
-                child: CardSwiper(
-                  controller: _swiperController,
-                  cardsCount: _profiles.length,
-                  onSwipe: _onSwipe,
-                  numberOfCardsDisplayed: 2,
-                  isLoop: true,
-                  padding: EdgeInsets.zero,
-                  cardBuilder: (context, index, percentThresholdX, percentThresholdY) {
-                    return _buildProfileCard(_profiles[index]);
-                  },
-                ),
-              ),
+              child: _isLoading
+                  ? const Center(child: CircularProgressIndicator())
+                  : _profiles.isEmpty
+                      ? _buildEmptyState()
+                      : Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 16.0),
+                          child: CardSwiper(
+                            controller: _swiperController,
+                            cardsCount: _profiles.length,
+                            onSwipe: _onSwipe,
+                            numberOfCardsDisplayed: _profiles.length > 1 ? 2 : 1,
+                            isLoop: false,
+                            padding: EdgeInsets.zero,
+                            cardBuilder: (context, index, percentThresholdX, percentThresholdY) {
+                              return _buildProfileCard(_profiles[index]);
+                            },
+                          ),
+                        ),
             ),
             _buildActionButtons(),
             const SizedBox(height: 24),
@@ -114,13 +101,172 @@ class _DashboardScreenState extends State<DashboardScreen> {
     int? currentIndex,
     CardSwiperDirection direction,
   ) {
-    // Example handling 
-    if (direction == CardSwiperDirection.right) {
-      debugPrint('Liked profile ${_profiles[previousIndex].name}');
-    } else if (direction == CardSwiperDirection.left) {
-      debugPrint('Passed profile ${_profiles[previousIndex].name}');
+    final profile = _profiles[previousIndex];
+    final bool isLike = direction == CardSwiperDirection.right;
+
+    if (isLike) {
+      _matchingService.sendLike(profile.id).then((matchId) {
+        if (matchId != null && mounted) {
+          final currentUserMetadata = _authService.currentUser?.userMetadata;
+          final currentUserAvatar = currentUserMetadata?['avatar_url'] ?? '';
+
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              fullscreenDialog: true,
+              builder: (context) => MatchFoundOverlay(
+                matchedProfile: profile,
+                currentUserAvatar: currentUserAvatar,
+                matchId: matchId,
+              ),
+            ),
+          );
+        }
+      });
     }
+
+    if (currentIndex == null || currentIndex >= _profiles.length) {
+      // End of deck, maybe load more?
+    }
+
     return true;
+  }
+
+  Widget _buildEmptyState() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.person_search_rounded, size: 80, color: AppTheme.primaryMaroon.withValues(alpha: 0.2)),
+          const SizedBox(height: 24),
+          const Text(
+            'No more profiles nearby',
+            style: TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.bold,
+              color: Color(0xFF2C2C2E),
+            ),
+          ),
+          const SizedBox(height: 12),
+          const Text(
+            'Check back later for new connections!',
+            style: TextStyle(
+              fontSize: 15,
+              color: Color(0xFF8E8E93),
+            ),
+          ),
+          const SizedBox(height: 32),
+          ElevatedButton(
+            onPressed: _loadProfiles,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppTheme.primaryMaroon,
+              padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+            ),
+            child: const Text('Refresh', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showMatchDialog(UserProfile profile) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => Dialog(
+        backgroundColor: Colors.transparent,
+        insetPadding: const EdgeInsets.symmetric(horizontal: 20),
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(32),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(32),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.2),
+                blurRadius: 20,
+                offset: const Offset(0, 10),
+              ),
+            ],
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                "IT'S A MATCH!",
+                style: TextStyle(
+                  fontSize: 28,
+                  fontWeight: FontWeight.w900,
+                  color: Color(0xFFE56A7C),
+                  letterSpacing: 2,
+                ),
+              ),
+              const SizedBox(height: 24),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  CircleAvatar(
+                    radius: 45,
+                    backgroundImage: AssetImage('assets/image/connection.jpg'), // Current user
+                  ),
+                  const SizedBox(width: -15),
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: const BoxDecoration(
+                      color: Colors.white,
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(Icons.favorite_rounded, color: Color(0xFFE56A7C), size: 32),
+                  ),
+                  const SizedBox(width: -15),
+                  CircleAvatar(
+                    radius: 45,
+                    backgroundImage: profile.avatarUrl != null 
+                        ? NetworkImage(profile.avatarUrl!) 
+                        : const NetworkImage(AppConstants.defaultAvatar2) as ImageProvider,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 32),
+              Text(
+                "You and ${profile.fullName} liked each other.",
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontSize: 16,
+                  color: Color(0xFF2C2C2E),
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              const SizedBox(height: 32),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: () => Navigator.pop(context),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppTheme.primaryMaroon,
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                  ),
+                  child: const Text(
+                    'Say Hello',
+                    style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text(
+                  'Keep Swiping',
+                  style: TextStyle(color: Color(0xFF8E8E93), fontWeight: FontWeight.bold),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   Widget _buildHeader() {
@@ -154,6 +300,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ),
           Row(
             children: [
+              IconButton(
+                onPressed: () {
+                  Navigator.push(context, MaterialPageRoute(builder: (context) => const GlobalMomentsScreen()));
+                },
+                icon: Icon(Icons.auto_awesome_motion_rounded, color: AppTheme.primaryMaroon.withValues(alpha: 0.85), size: 28),
+              ),
               IconButton(
                 onPressed: () {
                   Navigator.push(context, MaterialPageRoute(builder: (context) => const NotificationsScreen()));
@@ -216,9 +368,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text(
-                      'Alex (28)',
-                      style: TextStyle(
+                    Text(
+                      _authService.currentUser?.userMetadata?['full_name'] ?? 'User',
+                      style: const TextStyle(
                         color: Color(0xFF2C2C2E),
                         fontWeight: FontWeight.w800,
                         fontSize: 20,
@@ -271,9 +423,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
           const SizedBox(height: 8),
           const Divider(color: Color(0xFFF2F2F7), thickness: 1.5, height: 1),
           const SizedBox(height: 8),
-          _buildMenuTile(context, 'Logout', Icons.logout_rounded, isDestructive: true, onTap: () {
-            Navigator.pop(context);
-            debugPrint('Logout clicked');
+          _buildMenuTile(context, 'Logout', Icons.logout_rounded, isDestructive: true, onTap: () async {
+            await _authService.signOut();
+            if (context.mounted) {
+              Navigator.of(context).pushAndRemoveUntil(
+                MaterialPageRoute(builder: (context) => const LoginScreen()),
+                (route) => false,
+              );
+            }
           }),
         ],
       ),
@@ -370,7 +527,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  Widget _buildProfileCard(DiscoveryProfile profile) {
+  Widget _buildProfileCard(UserProfile profile) {
     return Container(
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(24),
@@ -390,10 +547,31 @@ class _DashboardScreenState extends State<DashboardScreen> {
           children: [
             // Profile Image Content
             Positioned.fill(
-              child: Image.network(
-                profile.imageUrl,
-                fit: BoxFit.cover,
-                errorBuilder: (context, error, stackTrace) => Container(color: Colors.grey[300]),
+              child: profile.avatarUrl != null
+                  ? Image.network(
+                      profile.avatarUrl!,
+                      fit: BoxFit.cover,
+                      errorBuilder: (context, error, stackTrace) => Container(color: Colors.grey[300]),
+                    )
+                  : Image.network(
+                      AppConstants.defaultAvatar1,
+                      fit: BoxFit.cover,
+                    ),
+            ),
+            // Report Button
+            Positioned(
+              top: 16,
+              right: 16,
+              child: GestureDetector(
+                onTap: () => _showReportDialog(profile),
+                child: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withOpacity(0.3),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.flag_rounded, color: Colors.white70, size: 20),
+                ),
               ),
             ),
             // Soft Gradient Overlay matching instructions
@@ -428,7 +606,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     children: [
                       Flexible(
                         child: Text(
-                          '${profile.name}, ${profile.age}',
+                          '${profile.fullName}, ${profile.age}',
                           style: const TextStyle(
                             color: Colors.white,
                             fontSize: 32,
@@ -459,29 +637,30 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     ],
                   ),
                   const SizedBox(height: 12),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.2),
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(color: Colors.white.withOpacity(0.3)),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Icon(Icons.star_border, color: Colors.white, size: 16),
-                        const SizedBox(width: 6),
-                        Text(
-                          profile.hobby,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 14,
-                            fontWeight: FontWeight.w600,
+                  if (profile.interests.isNotEmpty)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.2),
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(color: Colors.white.withOpacity(0.3)),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.star_border, color: Colors.white, size: 16),
+                          const SizedBox(width: 6),
+                          Text(
+                            profile.interests.first,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                            ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
-                  ),
                 ],
               ),
             ),
@@ -543,6 +722,75 @@ class _DashboardScreenState extends State<DashboardScreen> {
         ),
         child: Icon(icon, color: color, size: iconSize),
       ),
+    );
+  }
+
+  void _showReportDialog(UserProfile profile) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
+      ),
+      builder: (context) {
+        return Padding(
+          padding: const EdgeInsets.all(32.0),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Report User',
+                style: TextStyle(fontSize: 24, fontWeight: FontWeight.w800, color: Color(0xFF2C2C2E)),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Why are you reporting ${profile.fullName.split(' ').first}?',
+                style: const TextStyle(fontSize: 16, color: Color(0xFF8E8E93)),
+              ),
+              const SizedBox(height: 24),
+              _buildReportOption(profile, 'Fake Profile / Spam'),
+              _buildReportOption(profile, 'Inappropriate Content'),
+              _buildReportOption(profile, 'Harassment'),
+              _buildReportOption(profile, 'Underage'),
+              const SizedBox(height: 24),
+              SizedBox(
+                width: double.infinity,
+                child: TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('Cancel', style: TextStyle(color: Color(0xFF8E8E93), fontWeight: FontWeight.bold)),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildReportOption(UserProfile profile, String reason) {
+    return ListTile(
+      contentPadding: EdgeInsets.zero,
+      title: Text(reason, style: const TextStyle(fontWeight: FontWeight.w600)),
+      trailing: const Icon(Icons.arrow_forward_ios_rounded, size: 16),
+      onTap: () async {
+        Navigator.pop(context);
+        try {
+          // Use the profile ID directly instead of trying to find the index
+          await Supabase.instance.client.from('reports').insert({
+            'reporter_id': _authService.currentUser?.id,
+            'reported_id': profile.id,
+            'reason': reason,
+          });
+          
+          if (mounted) {
+            UIHelpers.showSnackBar(context, 'Report submitted. Thank you for keeping Trish safe.');
+            _swiperController.swipe(CardSwiperDirection.left);
+          }
+        } catch (e) {
+          if (mounted) UIHelpers.showSnackBar(context, 'Error submitting report: $e');
+        }
+      },
     );
   }
 }

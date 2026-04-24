@@ -1,12 +1,95 @@
 import 'package:flutter/material.dart';
 import '../../core/theme.dart';
 import '../../widgets/custom_button.dart';
-import 'otp_screen.dart';
 import 'signup_screen.dart';
+import 'verify_email_screen.dart';
 import '../../core/ui_helpers.dart';
+import '../../core/auth_service.dart';
+import '../home/main_navigation_screen.dart';
 
-class LoginScreen extends StatelessWidget {
+class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
+
+  @override
+  State<LoginScreen> createState() => _LoginScreenState();
+}
+
+class _LoginScreenState extends State<LoginScreen> {
+  final AuthService _authService = AuthService();
+  final TextEditingController _emailController = TextEditingController();
+  final TextEditingController _passwordController = TextEditingController();
+  bool _isLoading = false;
+
+  @override
+  void dispose() {
+    _emailController.dispose();
+    _passwordController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _login() async {
+    if (_emailController.text.isEmpty || _passwordController.text.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter both email and password.')),
+      );
+      return;
+    }
+
+    setState(() => _isLoading = true);
+
+    try {
+      await _authService.signIn(
+        email: _emailController.text.trim(),
+        password: _passwordController.text.trim(),
+      );
+
+      // Check verification status
+      await _authService.reloadUser();
+      final user = _authService.currentUser;
+
+      if (mounted) {
+        if (user?.emailConfirmedAt == null) {
+          Navigator.of(context).pushReplacement(
+            MaterialPageRoute(
+              builder: (context) => VerifyEmailScreen(email: _emailController.text.trim()),
+            ),
+          );
+        } else {
+          Navigator.of(context).pushReplacement(
+            MaterialPageRoute(builder: (context) => const MainNavigationScreen()),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Login failed: ${e.toString()}')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _loginWithGoogle() async {
+    setState(() => _isLoading = true);
+    try {
+      await _authService.signInWithGoogle();
+      if (mounted) {
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (context) => const MainNavigationScreen()),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Google login failed: ${e.toString()}')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -45,6 +128,7 @@ class LoginScreen extends StatelessWidget {
                 label: 'Email or Phone',
                 hint: 'Enter your email or phone',
                 icon: Icons.email_outlined,
+                controller: _emailController,
               ),
               const SizedBox(height: 24),
               _buildInputContainer(
@@ -53,6 +137,7 @@ class LoginScreen extends StatelessWidget {
                 hint: 'Enter your password',
                 icon: Icons.lock_outline,
                 isPassword: true,
+                controller: _passwordController,
               ),
               const SizedBox(height: 12),
               Align(
@@ -67,12 +152,8 @@ class LoginScreen extends StatelessWidget {
               ),
               const SizedBox(height: 24),
               CustomButton(
-                text: 'Login',
-                onPressed: () {
-                  Navigator.of(context).push(
-                    MaterialPageRoute(builder: (context) => const OtpScreen()),
-                  );
-                },
+                text: _isLoading ? 'Logging in...' : 'Login',
+                onPressed: _isLoading ? () {} : _login,
               ),
               const SizedBox(height: 32),
               _buildDivider(),
@@ -80,7 +161,7 @@ class LoginScreen extends StatelessWidget {
               CustomButton(
                 text: 'Continue with Google',
                 isSecondary: true,
-                onPressed: () => UIHelpers.showFeatureComingSoon(context),
+                onPressed: _isLoading ? () {} : _loginWithGoogle,
               ),
               const SizedBox(height: 16),
               CustomButton(
@@ -116,7 +197,7 @@ class LoginScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildInputContainer(BuildContext context, {required String label, required String hint, required IconData icon, bool isPassword = false}) {
+  Widget _buildInputContainer(BuildContext context, {required String label, required String hint, required IconData icon, bool isPassword = false, required TextEditingController controller}) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -135,6 +216,7 @@ class LoginScreen extends StatelessWidget {
             borderRadius: BorderRadius.circular(28),
           ),
           child: TextField(
+            controller: controller,
             obscureText: isPassword,
             decoration: InputDecoration(
               hintText: hint,

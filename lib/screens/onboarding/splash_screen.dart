@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import '../../core/theme.dart';
 import 'onboarding_screen.dart';
+import '../../core/auth_service.dart';
+import '../home/main_navigation_screen.dart';
+import '../auth/verify_email_screen.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -12,6 +15,7 @@ class SplashScreen extends StatefulWidget {
 class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderStateMixin {
   late AnimationController _controller;
   late Animation<double> _fadeAnimation;
+  final AuthService _authService = AuthService();
 
   @override
   void initState() {
@@ -26,14 +30,40 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
 
     _controller.forward();
 
-    // Navigate to next screen after 3 seconds
-    Future.delayed(const Duration(seconds: 3), () {
-      if (mounted) {
+    // Navigate based on auth session and verification status
+    _handleNavigation();
+  }
+
+  Future<void> _handleNavigation() async {
+    await Future.delayed(const Duration(seconds: 3));
+    if (!mounted) return;
+
+    final user = _authService.currentUser;
+    
+    if (user == null) {
+      // User not logged in
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(builder: (context) => const OnboardingScreen()),
+      );
+    } else {
+      // User is logged in, check verification
+      await _authService.reloadUser();
+      final freshUser = _authService.currentUser;
+
+      if (freshUser?.emailConfirmedAt == null) {
+        // User logged in but email not verified
         Navigator.of(context).pushReplacement(
-          MaterialPageRoute(builder: (context) => const OnboardingScreen()),
+          MaterialPageRoute(
+            builder: (context) => VerifyEmailScreen(email: freshUser?.email ?? ''),
+          ),
+        );
+      } else {
+        // Logged in and verified
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (context) => const MainNavigationScreen()),
         );
       }
-    });
+    }
   }
 
   @override
@@ -115,13 +145,9 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
                                   ),
                             ),
                             const SizedBox(height: 28),
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                _buildDot(true),
-                                _buildDot(false),
-                                _buildDot(false),
-                              ],
+                            const CircularProgressIndicator(
+                              valueColor: AlwaysStoppedAnimation<Color>(AppTheme.primaryMaroon),
+                              strokeWidth: 2,
                             ),
                             const SizedBox(height: 40),
                           ],
@@ -134,18 +160,6 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
             },
           ),
         ),
-      ),
-    );
-  }
-
-  Widget _buildDot(bool active) {
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 5),
-      width: 8,
-      height: 8,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        color: AppTheme.primaryMaroon.withOpacity(active ? 0.5 : 0.3),
       ),
     );
   }

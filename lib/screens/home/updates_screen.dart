@@ -5,6 +5,10 @@ import 'package:trish_app/core/ui_helpers.dart';
 import 'package:trish_app/widgets/skeleton_loader.dart';
 import 'package:trish_app/widgets/skeleton_factory.dart'; // v2: Refresh cache
 import 'package:trish_app/screens/home/main_navigation_screen.dart';
+import 'package:trish_app/core/chat_service.dart';
+import 'package:trish_app/screens/home/interaction_chat_screen.dart';
+import 'package:trish_app/models/user_profile.dart';
+import 'package:intl/intl.dart';
 
 class UpdatesScreen extends StatefulWidget {
   const UpdatesScreen({super.key});
@@ -14,15 +18,30 @@ class UpdatesScreen extends StatefulWidget {
 }
 
 class _UpdatesScreenState extends State<UpdatesScreen> {
+  final ChatService _chatService = ChatService();
   bool _isLoading = true;
+  List<ChatMatch> _matches = [];
 
   @override
   void initState() {
     super.initState();
-    // Simulate initial loading
-    Future.delayed(const Duration(milliseconds: 1200), () {
-      if (mounted) setState(() => _isLoading = false);
-    });
+    _loadMatches();
+  }
+
+  Future<void> _loadMatches() async {
+    setState(() => _isLoading = true);
+    try {
+      final matches = await _chatService.getMatches();
+      setState(() {
+        _matches = matches;
+        _isLoading = false;
+      });
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isLoading = false);
+        UIHelpers.showSnackBar(context, 'Error loading updates: $e');
+      }
+    }
   }
 
   @override
@@ -81,54 +100,144 @@ class _UpdatesScreenState extends State<UpdatesScreen> {
   }
 
   Widget _buildContent() {
-    // For demo purposes, we'll assume there is content. 
-    // To show empty state, return _buildEmptyState()
-    return ListView(
-      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
-      children: [
-        _buildUpdateItem(
+    if (_matches.isEmpty) {
+      return _buildEmptyState();
+    }
+
+    return RefreshIndicator(
+      onRefresh: _loadMatches,
+      color: AppTheme.primaryMaroon,
+      child: CustomScrollView(
+        slivers: [
+          // 1. New Matches Section (Horizontal)
+          SliverToBoxAdapter(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 24.0, vertical: 8.0),
+                  child: Text(
+                    'New Matches',
+                    style: TextStyle(
+                      color: Color(0xFF2C2C2E),
+                      fontSize: 18,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+                SizedBox(
+                  height: 120,
+                  child: ListView.builder(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    scrollDirection: Axis.horizontal,
+                    itemCount: _matches.length,
+                    itemBuilder: (context, index) {
+                      final match = _matches[index];
+                      return _buildNewMatchCircle(match);
+                    },
+                  ),
+                ),
+                const SizedBox(height: 16),
+                const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 24.0),
+                  child: Text(
+                    'Messages',
+                    style: TextStyle(
+                      color: Color(0xFF2C2C2E),
+                      fontSize: 18,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          // 2. Messages Section (Vertical)
+          SliverPadding(
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+            sliver: SliverList(
+              delegate: SliverChildBuilderDelegate(
+                (context, index) {
+                  final match = _matches[index];
+                  return _buildUpdateItem(
+                    context,
+                    title: match.otherUser.fullName,
+                    subtitle: 'You matched! Say hi to start the conversation.',
+                    time: DateFormat.jm().format(match.createdAt),
+                    imageUrl: match.otherUser.avatarUrl,
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => InteractionChatScreen(
+                            matchId: match.id,
+                            targetProfile: match.otherUser,
+                          ),
+                        ),
+                      );
+                    },
+                  );
+                },
+                childCount: _matches.length,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildNewMatchCircle(ChatMatch match) {
+    return GestureDetector(
+      onTap: () {
+        Navigator.push(
           context,
-          title: 'New Match!',
-          subtitle: 'You and David liked each other.',
-          time: 'Just now',
-          imageUrl: AppConstants.defaultAvatar1,
-          isUnread: true,
-          indicatorColor: const Color(0xFF9D4C5E),
+          MaterialPageRoute(
+            builder: (context) => InteractionChatScreen(
+              matchId: match.id,
+              targetProfile: match.otherUser,
+            ),
+          ),
+        );
+      },
+      child: Container(
+        width: 85,
+        margin: const EdgeInsets.symmetric(horizontal: 8),
+        child: Column(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(3),
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: LinearGradient(
+                  colors: [AppTheme.primaryMaroon, const Color(0xFFE56A7C)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+              ),
+              child: CircleAvatar(
+                radius: 35,
+                backgroundColor: Colors.white,
+                backgroundImage: match.otherUser.avatarUrl != null
+                    ? NetworkImage(match.otherUser.avatarUrl!)
+                    : const NetworkImage(AppConstants.defaultAvatar1) as ImageProvider,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              match.otherUser.fullName.split(' ').first,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: Color(0xFF2C2C2E),
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
         ),
-        _buildUpdateItem(
-          context,
-          title: 'Elena',
-          subtitle: '"That sounds like a perfect plan for Thursday! What...',
-          time: '2m',
-          imageUrl: AppConstants.defaultAvatar2,
-          isUnread: true,
-          indicatorColor: const Color(0xFF9D4C5E),
-        ),
-        _buildUpdateItem(
-          context,
-          title: 'A token of affection',
-          subtitle: 'Marcus sent you a virtual bouquet.',
-          time: '1h',
-          icon: Icons.local_florist_rounded,
-          iconBg: const Color(0xFFFFE5D9),
-          indicatorColor: const Color(0xFF7D4249),
-        ),
-        _buildUpdateItem(
-          context,
-          title: 'Upcoming Date',
-          subtitle: 'Coffee with Sam at Blue Bottle is tomorrow at 10 AM.',
-          time: '4h',
-          icon: Icons.calendar_today_rounded,
-          iconBg: const Color(0xFFE5E6FF),
-        ),
-        _buildUpdateItem(
-          context,
-          title: 'James',
-          subtitle: 'Loved that article...',
-          time: 'Yesterday',
-          imageUrl: AppConstants.defaultAvatar3,
-        ),
-      ],
+      ),
     );
   }
 
@@ -269,9 +378,10 @@ class _UpdatesScreenState extends State<UpdatesScreen> {
     Color? iconBg,
     bool isUnread = false,
     Color? indicatorColor,
+    required VoidCallback onTap,
   }) {
     return GestureDetector(
-      onTap: () => UIHelpers.showSnackBar(context, 'Details for: $title'),
+      onTap: onTap,
       child: Container(
         margin: const EdgeInsets.only(bottom: 16),
         padding: const EdgeInsets.all(20),

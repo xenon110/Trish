@@ -8,6 +8,8 @@ import 'package:trish_app/widgets/skeleton_loader.dart';
 import 'package:trish_app/widgets/skeleton_factory.dart'; // v2: Refresh cache
 import 'package:trish_app/screens/home/interaction_chat_screen.dart';
 import 'package:trish_app/screens/home/main_navigation_screen.dart';
+import 'package:trish_app/core/auth_service.dart';
+import 'package:trish_app/models/user_profile.dart';
 
 class CuratedMatchesScreen extends StatefulWidget {
   const CuratedMatchesScreen({super.key});
@@ -17,14 +19,13 @@ class CuratedMatchesScreen extends StatefulWidget {
 }
 
 class _CuratedMatchesScreenState extends State<CuratedMatchesScreen> {
-  bool _isLoading = true;
+  final AuthService _authService = AuthService();
+  late Future<List<UserProfile>> _profilesFuture;
 
   @override
   void initState() {
     super.initState();
-    Future.delayed(const Duration(milliseconds: 1000), () {
-      if (mounted) setState(() => _isLoading = false);
-    });
+    _profilesFuture = _authService.getProfiles();
   }
 
   @override
@@ -36,9 +37,21 @@ class _CuratedMatchesScreenState extends State<CuratedMatchesScreen> {
           children: [
             _buildHeader(context),
             Expanded(
-              child: AnimatedSwitcher(
-                duration: const Duration(milliseconds: 300),
-                child: _isLoading ? _buildLoadingState() : _buildContent(),
+              child: FutureBuilder<List<UserProfile>>(
+                future: _profilesFuture,
+                builder: (context, snapshot) {
+                  if (snapshot.connectionState == ConnectionState.waiting) {
+                    return _buildLoadingState();
+                  }
+                  if (snapshot.hasError) {
+                    return Center(child: Text('Error loading profiles: ${snapshot.error}'));
+                  }
+                  final profiles = snapshot.data ?? [];
+                  if (profiles.isEmpty) {
+                    return _buildEmptyState();
+                  }
+                  return _buildContent(profiles);
+                },
               ),
             ),
             BottomNavBar(
@@ -60,7 +73,7 @@ class _CuratedMatchesScreenState extends State<CuratedMatchesScreen> {
     );
   }
 
-  Widget _buildContent() {
+  Widget _buildContent(List<UserProfile> profiles) {
     return SingleChildScrollView(
       padding: const EdgeInsets.all(24.0),
       child: Column(
@@ -83,24 +96,38 @@ class _CuratedMatchesScreenState extends State<CuratedMatchesScreen> {
                 ),
           ),
           const SizedBox(height: 32),
-          _buildMatchCard(
-            context,
-            name: 'Elias, 28',
-            matchPercentage: '94%',
-            vibe: 'Deep\nConnection',
-            tags: ['Creative', 'Early Bird', 'Coffee Snob'],
-            imageUrl: AppConstants.placeholderSuitMan,
+          ...profiles.map((profile) => Padding(
+            padding: const EdgeInsets.only(bottom: 24),
+            child: _buildMatchCard(
+              context,
+              name: '${profile.fullName}, ${profile.goal ?? "Seeking connection"}',
+              matchPercentage: '${90 + (profile.id.hashCode % 10)}%', // Deterministic random match %
+              vibe: profile.matter ?? 'Friendly',
+              tags: profile.interests.isNotEmpty ? profile.interests : ['Authentic', 'Kind'],
+              imageUrl: profile.avatarUrl ?? AppConstants.placeholderSuitMan,
+            ),
+          )),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildEmptyState() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.people_outline, size: 64, color: Colors.grey[300]),
+          const SizedBox(height: 16),
+          const Text(
+            'No profiles found yet.',
+            style: TextStyle(color: Color(0xFF8E8E93), fontSize: 18, fontWeight: FontWeight.w600),
           ),
-          const SizedBox(height: 24),
-          _buildMatchCard(
-            context,
-            name: 'Maya, 26',
-            matchPercentage: '88%',
-            vibe: 'Fun & Casual',
-            tags: ['Adventurous', 'Foodie', 'Dog Lover'],
-            imageUrl: AppConstants.defaultAvatar2,
+          const SizedBox(height: 8),
+          const Text(
+            'Try again later or share the app!',
+            style: TextStyle(color: Color(0xFF8E8E93), fontSize: 14),
           ),
-          const SizedBox(height: 24),
         ],
       ),
     );

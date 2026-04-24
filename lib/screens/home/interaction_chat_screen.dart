@@ -3,9 +3,20 @@ import '../../core/theme.dart';
 import '../../core/constants.dart';
 import '../../widgets/bottom_nav_bar.dart';
 import '../../core/ui_helpers.dart';
+import '../../core/chat_service.dart';
+import '../../models/chat_message.dart';
+import '../../models/user_profile.dart';
+import 'package:intl/intl.dart';
 
 class InteractionChatScreen extends StatefulWidget {
-  const InteractionChatScreen({super.key});
+  final String matchId;
+  final UserProfile targetProfile;
+
+  const InteractionChatScreen({
+    super.key,
+    required this.matchId,
+    required this.targetProfile,
+  });
 
   @override
   State<InteractionChatScreen> createState() => _InteractionChatScreenState();
@@ -13,26 +24,8 @@ class InteractionChatScreen extends StatefulWidget {
 
 class _InteractionChatScreenState extends State<InteractionChatScreen> {
   final TextEditingController _messageController = TextEditingController();
-  final List<Map<String, dynamic>> _messages = [
-    {
-      'isMe': false,
-      'text': 'Hey! I saw you like hiking too. Have you been to the new trail up north?',
-      'time': '2:14 PM',
-      'avatar': AppConstants.defaultAvatar2,
-    },
-    {
-      'isMe': true,
-      'text': 'Hi Elena! Yes, I actually went there last weekend. The views are incredible, especially near sunset.',
-      'time': '2:15 PM',
-      'avatar': AppConstants.defaultAvatar1,
-    },
-    {
-      'isMe': false,
-      'text': 'That sounds amazing! I\'m planning to go this Saturday. Any tips for a first-timer?',
-      'time': '2:16 PM',
-      'avatar': AppConstants.defaultAvatar2,
-    },
-  ];
+  final ChatService _chatService = ChatService();
+  final ScrollController _scrollController = ScrollController();
 
   final List<String> _prompts = [
     'Wear good boots! 🥾',
@@ -43,15 +36,21 @@ class _InteractionChatScreenState extends State<InteractionChatScreen> {
 
   void _sendMessage() {
     if (_messageController.text.trim().isNotEmpty) {
-      setState(() {
-        _messages.add({
-          'isMe': true,
-          'text': _messageController.text.trim(),
-          'time': '2:17 PM',
-          'avatar': AppConstants.defaultAvatar1,
-        });
-        _messageController.clear();
+      final content = _messageController.text.trim();
+      _messageController.clear();
+      _chatService.sendMessage(widget.matchId, content).catchError((e) {
+        if (mounted) UIHelpers.showSnackBar(context, 'Failed to send message: $e');
       });
+    }
+  }
+
+  void _scrollToBottom() {
+    if (_scrollController.hasClients) {
+      _scrollController.animateTo(
+        _scrollController.position.maxScrollExtent,
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeOut,
+      );
     }
   }
 
@@ -63,18 +62,28 @@ class _InteractionChatScreenState extends State<InteractionChatScreen> {
       body: Column(
         children: [
           Expanded(
-            child: ListView.builder(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
-              itemCount: _messages.length + 2, // +1 for date, +1 for typing indicator
-              itemBuilder: (context, index) {
-                if (index == 0) {
-                  return _buildDateHeader('Today, 2:14 PM');
+            child: StreamBuilder<List<ChatMessage>>(
+              stream: _chatService.getMessagesStream(widget.matchId),
+              builder: (context, snapshot) {
+                if (snapshot.hasError) {
+                  return Center(child: Text('Error: ${snapshot.error}'));
                 }
-                if (index == _messages.length + 1) {
-                  return _buildTypingIndicator();
+                if (!snapshot.hasData) {
+                  return const Center(child: CircularProgressIndicator());
                 }
-                final message = _messages[index - 1];
-                return _buildMessageBubble(message);
+
+                final messages = snapshot.data!;
+                WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
+
+                return ListView.builder(
+                  controller: _scrollController,
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
+                  itemCount: messages.length,
+                  itemBuilder: (context, index) {
+                    final message = messages[index];
+                    return _buildMessageBubble(message);
+                  },
+                );
               },
             ),
           ),
@@ -99,17 +108,19 @@ class _InteractionChatScreenState extends State<InteractionChatScreen> {
       ),
       title: Row(
         children: [
-          const CircleAvatar(
+          CircleAvatar(
             radius: 20,
-            backgroundImage: NetworkImage(AppConstants.defaultAvatar2),
+            backgroundImage: widget.targetProfile.avatarUrl != null
+                ? NetworkImage(widget.targetProfile.avatarUrl!)
+                : const NetworkImage(AppConstants.defaultAvatar2) as ImageProvider,
           ),
           const SizedBox(width: 12),
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text(
-                'Elena, 28',
-                style: TextStyle(
+              Text(
+                widget.targetProfile.fullName,
+                style: const TextStyle(
                   color: Color(0xFF2C2C2E),
                   fontSize: 18,
                   fontWeight: FontWeight.w800,
@@ -170,8 +181,8 @@ class _InteractionChatScreenState extends State<InteractionChatScreen> {
     );
   }
 
-  Widget _buildMessageBubble(Map<String, dynamic> message) {
-    final bool isMe = message['isMe'];
+  Widget _buildMessageBubble(ChatMessage message) {
+    final bool isMe = message.isMe;
     return Padding(
       padding: const EdgeInsets.only(bottom: 20),
       child: Row(
@@ -181,31 +192,46 @@ class _InteractionChatScreenState extends State<InteractionChatScreen> {
           if (!isMe) ...[
             CircleAvatar(
               radius: 16,
-              backgroundImage: NetworkImage(message['avatar']),
+              backgroundImage: widget.targetProfile.avatarUrl != null
+                  ? NetworkImage(widget.targetProfile.avatarUrl!)
+                  : const NetworkImage(AppConstants.defaultAvatar2) as ImageProvider,
             ),
             const SizedBox(width: 8),
           ],
           Flexible(
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              decoration: BoxDecoration(
-                gradient: isMe ? AppTheme.buttonGradient : null,
-                color: isMe ? null : const Color(0xFFF8F8F8),
-                borderRadius: BorderRadius.only(
-                  topLeft: const Radius.circular(20),
-                  topRight: const Radius.circular(20),
-                  bottomLeft: Radius.circular(isMe ? 20 : 4),
-                  bottomRight: Radius.circular(isMe ? 4 : 20),
+            child: Column(
+              crossAxisAlignment: isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  decoration: BoxDecoration(
+                    gradient: isMe ? AppTheme.buttonGradient : null,
+                    color: isMe ? null : const Color(0xFFF8F8F8),
+                    borderRadius: BorderRadius.only(
+                      topLeft: const Radius.circular(20),
+                      topRight: const Radius.circular(20),
+                      bottomLeft: Radius.circular(isMe ? 20 : 4),
+                      bottomRight: Radius.circular(isMe ? 4 : 20),
+                    ),
+                  ),
+                  child: Text(
+                    message.content,
+                    style: TextStyle(
+                      color: isMe ? Colors.white : const Color(0xFF2C2C2E),
+                      fontSize: 15,
+                      height: 1.4,
+                    ),
+                  ),
                 ),
-              ),
-              child: Text(
-                message['text'],
-                style: TextStyle(
-                  color: isMe ? Colors.white : const Color(0xFF2C2C2E),
-                  fontSize: 15,
-                  height: 1.4,
+                const SizedBox(height: 4),
+                Text(
+                  DateFormat.jm().format(message.createdAt),
+                  style: const TextStyle(
+                    color: Color(0xFF8E8E93),
+                    fontSize: 10,
+                  ),
                 ),
-              ),
+              ],
             ),
           ),
         ],

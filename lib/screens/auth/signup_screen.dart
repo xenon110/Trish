@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import '../../core/theme.dart';
 import '../../widgets/custom_button.dart';
-import 'otp_screen.dart';
 import 'login_screen.dart';
+import 'verify_email_screen.dart';
+import '../../core/auth_service.dart';
+import '../home/main_navigation_screen.dart';
+import '../../core/ui_helpers.dart';
 
 class SignupScreen extends StatefulWidget {
   const SignupScreen({super.key});
@@ -12,9 +15,17 @@ class SignupScreen extends StatefulWidget {
 }
 
 class _SignupScreenState extends State<SignupScreen> {
+  final AuthService _authService = AuthService();
+  final TextEditingController _nameController = TextEditingController();
+  final TextEditingController _emailController = TextEditingController();
+  final TextEditingController _passwordController = TextEditingController();
+  final TextEditingController _ageController = TextEditingController();
+  
+  String _selectedGender = 'Man';
   String _selectedGoal = 'Meaningful connection';
   String _selectedMatter = 'Kindness';
   bool _hasGenuineIntent = false;
+  bool _isLoading = false;
 
   final List<String> _goals = [
     'Meaningful connection',
@@ -27,6 +38,103 @@ class _SignupScreenState extends State<SignupScreen> {
     'Ambition',
     'Shared values',
   ];
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _emailController.dispose();
+    _passwordController.dispose();
+    _ageController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _signUp() async {
+    final email = _emailController.text.trim();
+    final password = _passwordController.text.trim();
+    final name = _nameController.text.trim();
+    final age = int.tryParse(_ageController.text.trim()) ?? 0;
+
+    if (!_hasGenuineIntent) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please confirm your genuine intent.')),
+      );
+      return;
+    }
+
+    if (email.isEmpty || password.isEmpty || name.isEmpty || _ageController.text.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please fill in all fields.')),
+      );
+      return;
+    }
+
+    if (age < 18) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('You must be 18 or older to use Trish.')),
+      );
+      return;
+    }
+
+    // Basic email validation
+    if (!RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$').hasMatch(email)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter a valid email address.')),
+      );
+      return;
+    }
+
+    setState(() => _isLoading = true);
+
+    try {
+      final response = await _authService.signUp(
+        email: email,
+        password: password,
+        fullName: name,
+        metadata: {
+          'goal': _selectedGoal,
+          'matter': _selectedMatter,
+          'age': age,
+          'gender': _selectedGender,
+        },
+      );
+
+      if (mounted) {
+        // Check if user is already confirmed (e.g. if email confirmation is disabled in Supabase)
+        if (response.user?.emailConfirmedAt != null) {
+          UIHelpers.showSnackBar(context, 'Account created and verified!');
+          Navigator.of(context).pushAndRemoveUntil(
+            MaterialPageRoute(builder: (context) => const MainNavigationScreen()),
+            (route) => false,
+          );
+        } else {
+          UIHelpers.showSnackBar(context, 'Verification email sent! Please check your inbox.');
+          Navigator.of(context).pushReplacement(
+            MaterialPageRoute(
+              builder: (context) => VerifyEmailScreen(email: email),
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        String errorMsg = e.toString();
+        if (errorMsg.contains('429')) {
+          errorMsg = 'Too many attempts. Please try again in a few minutes.';
+        } else if (errorMsg.contains('Email link is invalid')) {
+          errorMsg = 'The verification link has expired. Please try resending.';
+        }
+        
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(errorMsg),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -57,12 +165,8 @@ class _SignupScreenState extends State<SignupScreen> {
               _buildConsentCheckbox(),
               const SizedBox(height: 40),
               CustomButton(
-                text: 'Continue',
-                onPressed: () {
-                  Navigator.of(context).push(
-                    MaterialPageRoute(builder: (context) => const OtpScreen()),
-                  );
-                },
+                text: _isLoading ? 'Creating Account...' : 'Continue',
+                onPressed: _isLoading ? () {} : _signUp,
               ),
               const SizedBox(height: 24),
               _buildLoginLink(),
@@ -100,16 +204,78 @@ class _SignupScreenState extends State<SignupScreen> {
   Widget _buildInputFields() {
     return Column(
       children: [
-        _buildTextField(label: 'Name', hint: 'Your full name', icon: Icons.person_outline),
+        _buildTextField(label: 'Name', hint: 'Your full name', icon: Icons.person_outline, controller: _nameController),
         const SizedBox(height: 20),
-        _buildTextField(label: 'Phone or Email', hint: 'Enter your phone or email', icon: Icons.email_outlined),
+        _buildTextField(label: 'Phone or Email', hint: 'Enter your phone or email', icon: Icons.email_outlined, controller: _emailController),
         const SizedBox(height: 20),
-        _buildTextField(label: 'Password', hint: 'Create a password', icon: Icons.lock_outline, isPassword: true),
+        _buildTextField(label: 'Password', hint: 'Create a password', icon: Icons.lock_outline, isPassword: true, controller: _passwordController),
+        const SizedBox(height: 20),
+        Row(
+          children: [
+            Expanded(
+              flex: 1,
+              child: _buildTextField(label: 'Age', hint: '18+', icon: Icons.calendar_today_outlined, controller: _ageController, keyboardType: TextInputType.number),
+            ),
+            const SizedBox(width: 20),
+            Expanded(
+              flex: 2,
+              child: _buildGenderSelection(),
+            ),
+          ],
+        ),
       ],
     );
   }
 
-  Widget _buildTextField({required String label, required String hint, required IconData icon, bool isPassword = false}) {
+  Widget _buildGenderSelection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Gender',
+          style: TextStyle(color: AppTheme.textDark, fontWeight: FontWeight.w600, fontSize: 16),
+        ),
+        const SizedBox(height: 8),
+        Container(
+          height: 56,
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(20),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.03),
+                blurRadius: 10,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          child: DropdownButtonHideUnderline(
+            child: DropdownButton<String>(
+              value: _selectedGender,
+              isExpanded: true,
+              icon: Icon(Icons.keyboard_arrow_down_rounded, color: AppTheme.primaryMaroon.withOpacity(0.6)),
+              items: ['Man', 'Woman', 'Other'].map((String value) {
+                return DropdownMenuItem<String>(
+                  value: value,
+                  child: Text(value, style: const TextStyle(fontSize: 14)),
+                );
+              }).toList(),
+              onChanged: (String? newValue) {
+                if (newValue != null) {
+                  setState(() {
+                    _selectedGender = newValue;
+                  });
+                }
+              },
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildTextField({required String label, required String hint, required IconData icon, bool isPassword = false, required TextEditingController controller, TextInputType keyboardType = TextInputType.text}) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -131,7 +297,9 @@ class _SignupScreenState extends State<SignupScreen> {
             ],
           ),
           child: TextField(
+            controller: controller,
             obscureText: isPassword,
+            keyboardType: keyboardType,
             decoration: InputDecoration(
               hintText: hint,
               hintStyle: const TextStyle(color: AppTheme.textLight, fontSize: 14),
