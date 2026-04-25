@@ -271,7 +271,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   Widget _buildHeader() {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 12.0),
+      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
@@ -286,7 +286,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   backgroundImage: AssetImage('assets/image/connection.jpg'),
                 ),
               ),
-              const SizedBox(width: 12),
+              const SizedBox(width: 8),
               Text(
                 'TRISH',
                 style: TextStyle(
@@ -298,25 +298,34 @@ class _DashboardScreenState extends State<DashboardScreen> {
               ),
             ],
           ),
-          Row(
-            children: [
-              IconButton(
-                onPressed: () {
-                  Navigator.push(context, MaterialPageRoute(builder: (context) => const GlobalMomentsScreen()));
-                },
-                icon: Icon(Icons.auto_awesome_motion_rounded, color: AppTheme.primaryMaroon.withValues(alpha: 0.85), size: 28),
-              ),
-              IconButton(
-                onPressed: () {
-                  Navigator.push(context, MaterialPageRoute(builder: (context) => const NotificationsScreen()));
-                },
-                icon: Icon(Icons.notifications_none_rounded, color: AppTheme.primaryMaroon.withValues(alpha: 0.85), size: 28),
-              ),
-              IconButton(
-                onPressed: () => _showOverflowMenu(context),
-                icon: Icon(Icons.more_vert_rounded, color: AppTheme.primaryMaroon.withValues(alpha: 0.85), size: 28),
-              ),
-            ],
+          Flexible(
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                IconButton(
+                  onPressed: () {
+                    Navigator.push(context, MaterialPageRoute(builder: (context) => const GlobalMomentsScreen()));
+                  },
+                  icon: Icon(Icons.auto_awesome_motion_rounded, color: AppTheme.primaryMaroon.withValues(alpha: 0.85), size: 24),
+                  padding: const EdgeInsets.all(8),
+                  constraints: const BoxConstraints(),
+                ),
+                IconButton(
+                  onPressed: () {
+                    Navigator.push(context, MaterialPageRoute(builder: (context) => const NotificationsScreen()));
+                  },
+                  icon: Icon(Icons.notifications_none_rounded, color: AppTheme.primaryMaroon.withValues(alpha: 0.85), size: 24),
+                  padding: const EdgeInsets.all(8),
+                  constraints: const BoxConstraints(),
+                ),
+                IconButton(
+                  onPressed: () => _showOverflowMenu(context),
+                  icon: Icon(Icons.more_vert_rounded, color: AppTheme.primaryMaroon.withValues(alpha: 0.85), size: 24),
+                  padding: const EdgeInsets.all(8),
+                  constraints: const BoxConstraints(),
+                ),
+              ],
+            ),
           ),
         ],
       ),

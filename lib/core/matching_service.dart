@@ -62,7 +62,7 @@ class MatchingService {
       final response = await _supabase.from('matches').upsert({
         'user1_id': ids[0],
         'user2_id': ids[1],
-      }).select('id').single();
+      }, onConflict: 'user1_id,user2_id').select('id').single();
       
       return response['id'] as String;
     } catch (e) {

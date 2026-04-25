@@ -71,40 +71,17 @@ class WalletScreen extends StatelessWidget {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Row(
-            children: [
-              IconButton(
-                icon: Icon(Icons.arrow_back_ios_new, color: AppTheme.primaryMaroon),
-                onPressed: () {
-                  if (Navigator.of(context).canPop()) {
-                    Navigator.of(context).pop();
-                  }
-                },
-                padding: EdgeInsets.zero,
-                constraints: const BoxConstraints(),
-              ),
-              const SizedBox(width: 12),
-              GestureDetector(
-                onTap: () {
-                  context.findAncestorStateOfType<MainNavigationScreenState>()?.jumpToTab(4);
-                },
-                child: const CircleAvatar(
-                  radius: 20,
-                  backgroundImage: AssetImage('assets/image/connection.jpg'),
-                ),
-              ),
-            ],
+          IconButton(
+            icon: Icon(Icons.arrow_back_ios_new, color: AppTheme.primaryMaroon),
+            onPressed: () {
+              if (Navigator.of(context).canPop()) {
+                Navigator.of(context).pop();
+              }
+            },
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(),
           ),
-          const Text(
-            'GIFTS',
-            style: TextStyle(
-              color: Color(0xFF2C2C2E),
-              fontWeight: FontWeight.w800,
-              fontSize: 20,
-              letterSpacing: 0.5,
-            ),
-          ),
-          Icon(Icons.card_giftcard_rounded, color: AppTheme.primaryMaroon.withValues(alpha: 0.85), size: 28),
+          Icon(Icons.notifications, color: AppTheme.primaryMaroon.withOpacity(0.85), size: 28),
         ],
       ),
     );
@@ -115,82 +92,121 @@ class WalletScreen extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(32),
       decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [Color(0xFFFFFFFF), Color(0xFFFDFBFB)],
+        gradient: LinearGradient(
+          colors: [AppTheme.primaryMaroon, const Color(0xFF5D242E)],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
         borderRadius: BorderRadius.circular(40),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.04),
-            blurRadius: 24,
-            spreadRadius: 2,
-            offset: const Offset(0, 10),
+            color: AppTheme.primaryMaroon.withOpacity(0.4),
+            blurRadius: 30,
+            spreadRadius: 0,
+            offset: const Offset(0, 15),
           ),
         ],
       ),
-      child: Column(
+      child: Stack(
         children: [
-          const Text(
-            'TOTAL GIFT BALANCE',
-            style: TextStyle(
-              color: Color(0xFF8E8E93),
-              fontSize: 13,
-              fontWeight: FontWeight.w700,
-              letterSpacing: 1.2,
+          // Background decorative rings
+          Positioned(
+            right: -40,
+            top: -40,
+            child: Container(
+              width: 150,
+              height: 150,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                border: Border.all(color: Colors.white.withOpacity(0.1), width: 20),
+              ),
             ),
           ),
-          const SizedBox(height: 12),
-          const Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            crossAxisAlignment: CrossAxisAlignment.baseline,
-            textBaseline: TextBaseline.alphabetic,
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                '₹',
-                style: TextStyle(
-                  color: Color(0xFF2C2C2E),
-                  fontSize: 28,
-                  fontWeight: FontWeight.bold,
-                ),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    'TOTAL GIFT BALANCE',
+                    style: TextStyle(
+                      color: Colors.white70,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 1.5,
+                    ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.2),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Row(
+                      children: [
+                        Icon(Icons.auto_awesome_rounded, color: Color(0xFFFFD700), size: 14),
+                        SizedBox(width: 4),
+                        Text('Premium', style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
+                      ],
+                    ),
+                  ),
+                ],
               ),
-              SizedBox(width: 4),
-              Text(
-                '1,245.50',
-                style: TextStyle(
-                  color: Color(0xFF2C2C2E),
-                  fontSize: 48,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: -1,
-                ),
+              const SizedBox(height: 16),
+              const Row(
+                crossAxisAlignment: CrossAxisAlignment.baseline,
+                textBaseline: TextBaseline.alphabetic,
+                children: [
+                  Text(
+                    '₹',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 28,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  SizedBox(width: 4),
+                  Text(
+                    '1,245.50',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 48,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: -1,
+                    ),
+                  ),
+                ],
               ),
-            ],
-          ),
-          const SizedBox(height: 28),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              _buildPrimaryButton(
-                context,
-                'Send Gift',
-                Icons.card_giftcard,
-                AppTheme.primaryMaroon,
-                Colors.white,
-                () {
-                  Navigator.push(context, MaterialPageRoute(builder: (context) => const AddGiftScreen()));
-                },
-              ),
-              const SizedBox(width: 16),
-              _buildPrimaryButton(
-                context,
-                'Received',
-                Icons.mark_email_read_outlined,
-                const Color(0xFFF2F2F7),
-                const Color(0xFF2C2C2E),
-                () {
-                  Navigator.push(context, MaterialPageRoute(builder: (context) => const GiftHistoryScreen()));
-                },
+              const SizedBox(height: 36),
+              Row(
+                children: [
+                  Expanded(
+                    child: _buildPrimaryButton(
+                      context,
+                      'Send Gift',
+                      Icons.card_giftcard,
+                      Colors.white,
+                      AppTheme.primaryMaroon,
+                      () {
+                        Navigator.push(context, MaterialPageRoute(builder: (context) => const AddGiftScreen()));
+                      },
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: _buildPrimaryButton(
+                      context,
+                      'Received',
+                      Icons.mark_email_read_outlined,
+                      Colors.white.withOpacity(0.15),
+                      Colors.white,
+                      () {
+                        Navigator.push(context, MaterialPageRoute(builder: (context) => const GiftHistoryScreen()));
+                      },
+                    ),
+                  ),
+                ],
               ),
             ],
           ),
@@ -203,21 +219,23 @@ class WalletScreen extends StatelessWidget {
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+        padding: const EdgeInsets.symmetric(vertical: 16),
         decoration: BoxDecoration(
           color: bgColor,
           borderRadius: BorderRadius.circular(24),
+          border: Border.all(color: Colors.white.withOpacity(0.1), width: 1),
         ),
         child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(icon, color: textColor, size: 18),
+            Icon(icon, color: textColor, size: 20),
             const SizedBox(width: 8),
             Text(
               text,
               style: TextStyle(
                 color: textColor,
-                fontWeight: FontWeight.w700,
-                fontSize: 14,
+                fontWeight: FontWeight.w800,
+                fontSize: 15,
               ),
             ),
           ],
@@ -227,26 +245,22 @@ class WalletScreen extends StatelessWidget {
   }
 
   Widget _buildActionOptions(BuildContext context) {
-    return Row(
+    return Column(
       children: [
-        Expanded(
-          child: _buildActionCard(
-            context,
-            'Add Gift',
-            Icons.add_circle_outline,
-            const Color(0xFFFFE5D9),
-            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const AddGiftScreen())),
-          ),
+        _buildActionCard(
+          context,
+          'Add New Gift',
+          Icons.add_rounded,
+          const Color(0xFFFDECEC),
+          onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const AddGiftScreen())),
         ),
-        const SizedBox(width: 16),
-        Expanded(
-          child: _buildActionCard(
-            context,
-            'Gift History',
-            Icons.history_rounded,
-            const Color(0xFFE5E6FF),
-            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const GiftHistoryScreen())),
-          ),
+        const SizedBox(height: 16),
+        _buildActionCard(
+          context,
+          'Gift History',
+          Icons.history_rounded,
+          const Color(0xFFFDECEC),
+          onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const GiftHistoryScreen())),
         ),
       ],
     );
@@ -256,38 +270,42 @@ class WalletScreen extends StatelessWidget {
     return GestureDetector(
       onTap: onTap ?? () => UIHelpers.showFeatureComingSoon(context),
       child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 20),
+        padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 16),
         decoration: BoxDecoration(
           color: Colors.white,
-          borderRadius: BorderRadius.circular(28),
+          borderRadius: BorderRadius.circular(32),
+          border: Border.all(color: const Color(0xFFF2F2F7), width: 1),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withValues(alpha: 0.02),
-              blurRadius: 15,
-              offset: const Offset(0, 5),
+              color: Colors.black.withOpacity(0.02),
+              blurRadius: 20,
+              offset: const Offset(0, 10),
             ),
           ],
         ),
-        child: Column(
+        child: Row(
           children: [
             Container(
-              width: 44,
-              height: 44,
+              width: 52,
+              height: 52,
               decoration: BoxDecoration(
                 color: iconBgColor,
                 shape: BoxShape.circle,
               ),
-              child: Icon(icon, color: const Color(0xFF2C2C2E), size: 22),
+              child: Icon(icon, color: AppTheme.primaryMaroon, size: 24),
             ),
-            const SizedBox(height: 12),
-            Text(
-              label,
-              style: const TextStyle(
-                color: Color(0xFF2C2C2E),
-                fontWeight: FontWeight.w700,
-                fontSize: 14,
+            const SizedBox(width: 16),
+            Expanded(
+              child: Text(
+                label,
+                style: const TextStyle(
+                  color: Color(0xFF2C2C2E),
+                  fontWeight: FontWeight.w800,
+                  fontSize: 16,
+                ),
               ),
             ),
+            const Icon(Icons.arrow_forward_ios_rounded, color: Color(0xFFD1D1D6), size: 16),
           ],
         ),
       ),
@@ -329,40 +347,39 @@ class WalletScreen extends StatelessWidget {
     return GestureDetector(
       onTap: () => UIHelpers.showFeatureComingSoon(context),
       child: Container(
-        margin: const EdgeInsets.only(right: 16),
+        margin: const EdgeInsets.only(right: 16, bottom: 20, top: 10),
         width: 140,
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(20),
         decoration: BoxDecoration(
-          gradient: const LinearGradient(
-            colors: [Color(0xFFFFFFFF), Color(0xFFFFF9F9)],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
-          borderRadius: BorderRadius.circular(24),
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(32),
           boxShadow: [
             BoxShadow(
-              color: Colors.pink.withValues(alpha: 0.04),
-              blurRadius: 15,
+              color: AppTheme.primaryMaroon.withOpacity(0.08),
+              blurRadius: 20,
               spreadRadius: 0,
-              offset: const Offset(0, 6),
+              offset: const Offset(0, 8),
             ),
           ],
-          border: Border.all(color: Colors.pink.shade50.withValues(alpha: 0.5), width: 1),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            Text(
-              gift.emoji,
-              style: const TextStyle(fontSize: 40),
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: const BoxDecoration(
+                color: Color(0xFFFDF0F2),
+                shape: BoxShape.circle,
+              ),
+              child: Text(gift.emoji, style: const TextStyle(fontSize: 36)),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 16),
             Text(
               gift.name,
               style: const TextStyle(
                 color: Color(0xFF2C2C2E),
                 fontSize: 16,
-                fontWeight: FontWeight.w700,
+                fontWeight: FontWeight.w800,
               ),
             ),
             const SizedBox(height: 8),
@@ -378,19 +395,26 @@ class WalletScreen extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(width: 8),
-                Row(
-                  children: [
-                    const Icon(Icons.star_rounded, color: Color(0xFFFFB800), size: 14),
-                    const SizedBox(width: 2),
-                    Text(
-                      gift.rating.toString(),
-                      style: const TextStyle(
-                        color: Color(0xFF8E8E93),
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFFF7E6),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.star_rounded, color: Color(0xFFFFB800), size: 12),
+                      const SizedBox(width: 2),
+                      Text(
+                        gift.rating.toString(),
+                        style: const TextStyle(
+                          color: Color(0xFFD49A00),
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ],
             ),

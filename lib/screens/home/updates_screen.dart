@@ -7,6 +7,7 @@ import 'package:trish_app/widgets/skeleton_factory.dart'; // v2: Refresh cache
 import 'package:trish_app/screens/home/main_navigation_screen.dart';
 import 'package:trish_app/core/chat_service.dart';
 import 'package:trish_app/screens/home/interaction_chat_screen.dart';
+import 'package:trish_app/screens/home/blind_mode_screen.dart';
 import 'package:trish_app/models/user_profile.dart';
 import 'package:intl/intl.dart';
 
@@ -160,20 +161,26 @@ class _UpdatesScreenState extends State<UpdatesScreen> {
               delegate: SliverChildBuilderDelegate(
                 (context, index) {
                   final match = _matches[index];
+                  final isBlindMatch = match.isBlind && !match.isUnlocked;
+                  
                   return _buildUpdateItem(
                     context,
-                    title: match.otherUser.fullName,
-                    subtitle: 'You matched! Say hi to start the conversation.',
+                    title: isBlindMatch ? 'Blind Match' : match.otherUser.fullName,
+                    subtitle: match.lastMessage ?? 'You matched! Say hi to start the conversation.',
                     time: DateFormat.jm().format(match.createdAt),
-                    imageUrl: match.otherUser.avatarUrl,
+                    imageUrl: isBlindMatch ? null : match.otherUser.avatarUrl,
+                    icon: isBlindMatch ? Icons.visibility_off : null,
+                    isOnline: match.otherUser.isOnline,
                     onTap: () {
                       Navigator.push(
                         context,
                         MaterialPageRoute(
-                          builder: (context) => InteractionChatScreen(
-                            matchId: match.id,
-                            targetProfile: match.otherUser,
-                          ),
+                          builder: (context) => isBlindMatch
+                              ? BlindModeScreen(matchId: match.id, targetProfile: match.otherUser)
+                              : InteractionChatScreen(
+                                  matchId: match.id,
+                                  targetProfile: match.otherUser,
+                                ),
                         ),
                       );
                     },
@@ -189,15 +196,19 @@ class _UpdatesScreenState extends State<UpdatesScreen> {
   }
 
   Widget _buildNewMatchCircle(ChatMatch match) {
+    final isBlindMatch = match.isBlind && !match.isUnlocked;
+    
     return GestureDetector(
       onTap: () {
         Navigator.push(
           context,
           MaterialPageRoute(
-            builder: (context) => InteractionChatScreen(
-              matchId: match.id,
-              targetProfile: match.otherUser,
-            ),
+            builder: (context) => isBlindMatch
+                ? BlindModeScreen(matchId: match.id, targetProfile: match.otherUser)
+                : InteractionChatScreen(
+                    matchId: match.id,
+                    targetProfile: match.otherUser,
+                  ),
           ),
         );
       },
@@ -216,17 +227,38 @@ class _UpdatesScreenState extends State<UpdatesScreen> {
                   end: Alignment.bottomRight,
                 ),
               ),
-              child: CircleAvatar(
-                radius: 35,
-                backgroundColor: Colors.white,
-                backgroundImage: match.otherUser.avatarUrl != null
-                    ? NetworkImage(match.otherUser.avatarUrl!)
-                    : const NetworkImage(AppConstants.defaultAvatar1) as ImageProvider,
+              child: Stack(
+                children: [
+                  CircleAvatar(
+                    radius: 35,
+                    backgroundColor: isBlindMatch ? const Color(0xFFC7C7CC) : Colors.white,
+                    backgroundImage: isBlindMatch 
+                        ? null 
+                        : (match.otherUser.avatarUrl != null
+                            ? NetworkImage(match.otherUser.avatarUrl!)
+                            : const NetworkImage(AppConstants.defaultAvatar1) as ImageProvider),
+                    child: isBlindMatch ? const Icon(Icons.visibility_off, color: Colors.white, size: 30) : null,
+                  ),
+                  if (match.otherUser.isOnline)
+                    Positioned(
+                      right: 2,
+                      bottom: 2,
+                      child: Container(
+                        width: 14,
+                        height: 14,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF4CAF50),
+                          shape: BoxShape.circle,
+                          border: Border.all(color: Colors.white, width: 2.5),
+                        ),
+                      ),
+                    ),
+                ],
               ),
             ),
             const SizedBox(height: 8),
             Text(
-              match.otherUser.fullName.split(' ').first,
+              isBlindMatch ? 'Blind' : match.otherUser.fullName.split(' ').first,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: const TextStyle(
@@ -273,38 +305,17 @@ class _UpdatesScreenState extends State<UpdatesScreen> {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Row(
-            children: [
-              IconButton(
-                icon: Icon(Icons.arrow_back_ios_new, color: AppTheme.primaryMaroon),
-                onPressed: () {
-                  if (Navigator.of(context).canPop()) {
-                    Navigator.of(context).pop();
-                  }
-                },
-                padding: EdgeInsets.zero,
-                constraints: const BoxConstraints(),
-              ),
-              const SizedBox(width: 12),
-              GestureDetector(
-                onTap: () {
-                  context.findAncestorStateOfType<MainNavigationScreenState>()?.jumpToTab(4);
-                },
-                child: const CircleAvatar(
-                  radius: 20,
-                  backgroundImage: NetworkImage(AppConstants.defaultAvatar1),
-                ),
-              ),
-            ],
-          ),
-          Text(
-            'TRISH',
-            style: TextStyle(
-              color: AppTheme.primaryMaroon,
-              fontWeight: FontWeight.w800,
-              fontSize: 20,
-              letterSpacing: 0.5,
-            ),
+          IconButton(
+            icon: Icon(Icons.arrow_back_ios_new, color: AppTheme.primaryMaroon),
+            onPressed: () {
+              if (Navigator.of(context).canPop()) {
+                Navigator.of(context).pop();
+              } else {
+                context.findAncestorStateOfType<MainNavigationScreenState>()?.jumpToTab(0);
+              }
+            },
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(),
           ),
           IconButton(
             onPressed: () => UIHelpers.showFeatureComingSoon(context),
@@ -333,7 +344,8 @@ class _UpdatesScreenState extends State<UpdatesScreen> {
   }
 
   Widget _buildFilters(BuildContext context) {
-    return Padding(
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
       padding: const EdgeInsets.symmetric(horizontal: 24.0),
       child: Row(
         children: [
@@ -377,6 +389,7 @@ class _UpdatesScreenState extends State<UpdatesScreen> {
     IconData? icon,
     Color? iconBg,
     bool isUnread = false,
+    bool isOnline = false,
     Color? indicatorColor,
     required VoidCallback onTap,
   }) {
@@ -398,15 +411,33 @@ class _UpdatesScreenState extends State<UpdatesScreen> {
         ),
         child: Row(
           children: [
-            Container(
-              width: 56,
-              height: 56,
-              decoration: BoxDecoration(
-                color: iconBg ?? const Color(0xFFF2F2F7),
-                shape: BoxShape.circle,
-                image: imageUrl != null ? DecorationImage(image: NetworkImage(imageUrl), fit: BoxFit.cover) : null,
-              ),
-              child: icon != null ? Icon(icon, color: const Color(0xFF7D4249), size: 24) : null,
+            Stack(
+              children: [
+                Container(
+                  width: 56,
+                  height: 56,
+                  decoration: BoxDecoration(
+                    color: iconBg ?? const Color(0xFFF2F2F7),
+                    shape: BoxShape.circle,
+                    image: imageUrl != null ? DecorationImage(image: NetworkImage(imageUrl), fit: BoxFit.cover) : null,
+                  ),
+                  child: icon != null ? Icon(icon, color: const Color(0xFF7D4249), size: 24) : null,
+                ),
+                if (isOnline)
+                  Positioned(
+                    right: 0,
+                    bottom: 0,
+                    child: Container(
+                      width: 14,
+                      height: 14,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF4CAF50),
+                        shape: BoxShape.circle,
+                        border: Border.all(color: Colors.white, width: 2.5),
+                      ),
+                    ),
+                  ),
+              ],
             ),
             const SizedBox(width: 16),
             Expanded(

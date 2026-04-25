@@ -139,34 +139,11 @@ class _CuratedMatchesScreenState extends State<CuratedMatchesScreen> {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Row(
-            children: [
-              IconButton(
-                icon: Icon(Icons.arrow_back_ios_new, color: AppTheme.primaryMaroon),
-                onPressed: () => Navigator.of(context).pop(),
-                padding: EdgeInsets.zero,
-                constraints: const BoxConstraints(),
-              ),
-              const SizedBox(width: 12),
-              GestureDetector(
-                onTap: () {
-                  context.findAncestorStateOfType<MainNavigationScreenState>()?.jumpToTab(4);
-                },
-                child: const CircleAvatar(
-                  radius: 20,
-                  backgroundImage: NetworkImage(AppConstants.defaultAvatar1),
-                ),
-              ),
-            ],
-          ),
-          Text(
-            'TRISH',
-            style: TextStyle(
-              color: AppTheme.primaryMaroon,
-              fontWeight: FontWeight.w800,
-              fontSize: 20,
-              letterSpacing: 0.5,
-            ),
+          IconButton(
+            icon: Icon(Icons.arrow_back_ios_new, color: AppTheme.primaryMaroon),
+            onPressed: () => Navigator.of(context).pop(),
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(),
           ),
           IconButton(
             onPressed: () => UIHelpers.showFeatureComingSoon(context),

@@ -37,6 +37,31 @@ class DiscoveryService {
     }
   }
 
+  /// Fetches profiles specifically matched for Blind Mode (personality first).
+  Future<List<UserProfile>> getBlindDiscoveryProfiles() async {
+    final userId = _currentUserId;
+    if (userId == null) return [];
+
+    try {
+      final response = await _supabase.rpc(
+        'get_blind_matches',
+        params: {
+          'current_user_uuid': userId,
+          'limit_count': 10,
+        },
+      );
+
+      return (response as List).map((item) {
+        return UserProfile.fromJson(item['profile_json'] as Map<String, dynamic>);
+      }).toList();
+    } catch (e) {
+      print('Error fetching blind matches: $e');
+      // Fallback: Just return some regular profiles if the RPC isn't set up yet
+      final fallbackResponse = await _supabase.from('profiles').select().neq('id', userId).limit(10);
+      return (fallbackResponse as List).map((json) => UserProfile.fromJson(json)).toList();
+    }
+  }
+
   /// Records a swipe (like or pass) and checks for a match.
   /// Returns true if a match was created.
   Future<bool> swipe(String targetId, bool isLike) async {
@@ -77,6 +102,6 @@ class DiscoveryService {
     await _supabase.from('matches').upsert({
       'user1_id': ids[0],
       'user2_id': ids[1],
-    });
+    }, onConflict: 'user1_id,user2_id');
   }
 }

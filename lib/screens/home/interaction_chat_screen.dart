@@ -7,6 +7,7 @@ import '../../core/chat_service.dart';
 import '../../models/chat_message.dart';
 import '../../models/user_profile.dart';
 import 'package:intl/intl.dart';
+import 'package:trish_app/screens/home/main_navigation_screen.dart';
 
 class InteractionChatScreen extends StatefulWidget {
   final String matchId;
@@ -47,7 +48,7 @@ class _InteractionChatScreenState extends State<InteractionChatScreen> {
   void _scrollToBottom() {
     if (_scrollController.hasClients) {
       _scrollController.animateTo(
-        _scrollController.position.maxScrollExtent,
+        0.0,
         duration: const Duration(milliseconds: 300),
         curve: Curves.easeOut,
       );
@@ -76,6 +77,7 @@ class _InteractionChatScreenState extends State<InteractionChatScreen> {
                 WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
 
                 return ListView.builder(
+                  reverse: true,
                   controller: _scrollController,
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
                   itemCount: messages.length,
@@ -89,10 +91,6 @@ class _InteractionChatScreenState extends State<InteractionChatScreen> {
           ),
           _buildGuidedPrompts(),
           _buildInputArea(),
-          BottomNavBar(
-            currentIndex: 1, 
-            onTap: (idx) => UIHelpers.showSnackBar(context, 'Navigation to tab $idx from here is disabled.'),
-          ),
         ],
       ),
     );
@@ -104,15 +102,41 @@ class _InteractionChatScreenState extends State<InteractionChatScreen> {
       elevation: 0,
       leading: IconButton(
         icon: const Icon(Icons.arrow_back_ios_new, color: Color(0xFF7D4249)),
-        onPressed: () => Navigator.of(context).pop(),
+        onPressed: () {
+          if (Navigator.of(context).canPop()) {
+            Navigator.of(context).pop();
+          } else {
+            Navigator.of(context).pushReplacement(
+              MaterialPageRoute(builder: (_) => const MainNavigationScreen()),
+            );
+          }
+        },
       ),
       title: Row(
         children: [
-          CircleAvatar(
-            radius: 20,
-            backgroundImage: widget.targetProfile.avatarUrl != null
-                ? NetworkImage(widget.targetProfile.avatarUrl!)
-                : const NetworkImage(AppConstants.defaultAvatar2) as ImageProvider,
+          Stack(
+            children: [
+              CircleAvatar(
+                radius: 20,
+                backgroundImage: widget.targetProfile.avatarUrl != null
+                    ? NetworkImage(widget.targetProfile.avatarUrl!)
+                    : const NetworkImage(AppConstants.defaultAvatar2) as ImageProvider,
+              ),
+              if (widget.targetProfile.isOnline)
+                Positioned(
+                  right: 0,
+                  bottom: 0,
+                  child: Container(
+                    width: 12,
+                    height: 12,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF4CAF50),
+                      shape: BoxShape.circle,
+                      border: Border.all(color: Colors.white, width: 2),
+                    ),
+                  ),
+                ),
+            ],
           ),
           const SizedBox(width: 12),
           Column(
@@ -128,18 +152,20 @@ class _InteractionChatScreenState extends State<InteractionChatScreen> {
               ),
               Row(
                 children: [
-                  Container(
-                    width: 8,
-                    height: 8,
-                    decoration: const BoxDecoration(
-                      color: Color(0xFFE89A9A),
-                      shape: BoxShape.circle,
+                  if (widget.targetProfile.isOnline) ...[
+                    Container(
+                      width: 8,
+                      height: 8,
+                      decoration: const BoxDecoration(
+                        color: Color(0xFF4CAF50),
+                        shape: BoxShape.circle,
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 6),
-                  const Text(
-                    'Active now',
-                    style: TextStyle(
+                    const SizedBox(width: 6),
+                  ],
+                  Text(
+                    widget.targetProfile.isOnline ? 'Active now' : 'Offline',
+                    style: const TextStyle(
                       color: Color(0xFF8E8E93),
                       fontSize: 12,
                       fontWeight: FontWeight.w500,

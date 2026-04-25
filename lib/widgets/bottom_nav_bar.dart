@@ -14,8 +14,8 @@ class BottomNavBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
-      margin: const EdgeInsets.fromLTRB(24, 0, 24, 24),
+      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
+      margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(30),
@@ -47,7 +47,7 @@ class BottomNavBar extends StatelessWidget {
       behavior: HitTestBehavior.opaque,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
         decoration: BoxDecoration(
           color: isSelected ? AppTheme.primaryMaroon.withOpacity(0.1) : Colors.transparent,
           borderRadius: BorderRadius.circular(20),
@@ -70,7 +70,7 @@ class BottomNavBar extends StatelessWidget {
               style: TextStyle(
                 color: isSelected ? AppTheme.primaryMaroon : AppTheme.textLight.withOpacity(0.55),
                 fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
-                fontSize: 11,
+                fontSize: 10,
                 fontFamily: 'Outfit',
               ),
               child: Text(label),

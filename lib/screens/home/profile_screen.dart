@@ -90,35 +90,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Row(
-            children: [
-              IconButton(
-                icon: Icon(Icons.arrow_back_ios_new, color: AppTheme.primaryMaroon),
-                onPressed: () {
-                  if (Navigator.of(context).canPop()) {
-                    Navigator.of(context).pop();
-                  }
-                },
-                padding: EdgeInsets.zero,
-                constraints: const BoxConstraints(),
-              ),
-              const SizedBox(width: 12),
-              CircleAvatar(
-                radius: 20,
-                backgroundImage: avatarUrl != null 
-                    ? NetworkImage(avatarUrl) 
-                    : const AssetImage('assets/image/connection.jpg') as ImageProvider,
-              ),
-            ],
-          ),
-          Text(
-            'TRISH',
-            style: TextStyle(
-              color: AppTheme.primaryMaroon,
-              fontWeight: FontWeight.w800,
-              fontSize: 20,
-              letterSpacing: 0.5,
-            ),
+          IconButton(
+            icon: Icon(Icons.arrow_back_ios_new, color: AppTheme.primaryMaroon),
+            onPressed: () {
+              if (Navigator.of(context).canPop()) {
+                Navigator.of(context).pop();
+              }
+            },
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(),
           ),
           Icon(Icons.notifications, color: AppTheme.primaryMaroon.withOpacity(0.85), size: 28),
         ],
@@ -133,11 +113,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(48),
+        border: Border.all(color: Colors.white, width: 2),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.03),
-            blurRadius: 20,
-            offset: const Offset(0, 10),
+            color: AppTheme.primaryMaroon.withOpacity(0.08),
+            blurRadius: 30,
+            spreadRadius: 0,
+            offset: const Offset(0, 15),
           ),
         ],
       ),
@@ -146,9 +128,25 @@ class _ProfileScreenState extends State<ProfileScreen> {
           Stack(
             alignment: Alignment.center,
             children: [
+              // Glowing ring around avatar
+              Container(
+                width: 136,
+                height: 136,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFFE56A7C), Color(0xFF9D4C5E)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  boxShadow: [
+                    BoxShadow(color: const Color(0xFFE56A7C).withOpacity(0.4), blurRadius: 20, spreadRadius: 2),
+                  ],
+                ),
+              ),
               Container(
                 padding: const EdgeInsets.all(4),
-                decoration: const BoxDecoration(color: Color(0xFF2C2C2E), shape: BoxShape.circle),
+                decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle),
                 child: CircleAvatar(
                   radius: 60,
                   backgroundImage: avatarUrl != null 
@@ -157,36 +155,43 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 ),
               ),
               Positioned(
-                bottom: 4,
-                right: 4,
+                bottom: 0,
+                right: 0,
                 child: GestureDetector(
                   onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const EditProfileScreen())),
                   child: Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: const BoxDecoration(color: Color(0xFF9D4C5E), shape: BoxShape.circle),
-                    child: const Icon(Icons.edit, color: Colors.white, size: 14),
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: AppTheme.primaryMaroon,
+                      shape: BoxShape.circle,
+                      border: Border.all(color: Colors.white, width: 3),
+                      boxShadow: [
+                        BoxShadow(color: AppTheme.primaryMaroon.withOpacity(0.4), blurRadius: 8, offset: const Offset(0, 4)),
+                      ],
+                    ),
+                    child: const Icon(Icons.edit_rounded, color: Colors.white, size: 16),
                   ),
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 20),
+          const SizedBox(height: 24),
           Text(
             '$fullName, $age',
-            style: const TextStyle(color: Color(0xFF2C2C2E), fontSize: 24, fontWeight: FontWeight.w800),
+            style: const TextStyle(color: Color(0xFF2C2C2E), fontSize: 26, fontWeight: FontWeight.w800, letterSpacing: -0.5),
           ),
-          const SizedBox(height: 4),
+          const SizedBox(height: 6),
           Text(
             '$gender • $hobby',
-            style: const TextStyle(color: Color(0xFF8E8E93), fontSize: 15, fontWeight: FontWeight.w500),
+            style: const TextStyle(color: Color(0xFF8E8E93), fontSize: 16, fontWeight: FontWeight.w600),
           ),
-          const SizedBox(height: 20),
+          const SizedBox(height: 24),
           Wrap(
             alignment: WrapAlignment.center,
-            spacing: 8,
-            runSpacing: 8,
+            spacing: 10,
+            runSpacing: 10,
             children: [
-              _buildTag(location),
+              _buildTag(location, isPrimary: true),
               ...interests.take(2).map((interest) => _buildTag(interest)),
             ],
           ),
@@ -195,16 +200,21 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  Widget _buildTag(String label) {
+  Widget _buildTag(String label, {bool isPrimary = false}) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       decoration: BoxDecoration(
-        color: const Color(0xFFF7F7F8),
-        borderRadius: BorderRadius.circular(16),
+        color: isPrimary ? AppTheme.primaryMaroon.withOpacity(0.1) : const Color(0xFFF7F7F8),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: isPrimary ? AppTheme.primaryMaroon.withOpacity(0.2) : Colors.transparent),
       ),
       child: Text(
         label,
-        style: const TextStyle(color: Color(0xFF6B6B6B), fontSize: 13, fontWeight: FontWeight.w600),
+        style: TextStyle(
+          color: isPrimary ? AppTheme.primaryMaroon : const Color(0xFF6B6B6B), 
+          fontSize: 13, 
+          fontWeight: FontWeight.w700,
+        ),
       ),
     );
   }
@@ -214,41 +224,59 @@ class _ProfileScreenState extends State<ProfileScreen> {
     int percentage = (progress * 100).toInt();
     
     return Container(
-      padding: const EdgeInsets.all(32),
+      padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
-        color: const Color(0xFFF2F2F7).withOpacity(0.5),
-        borderRadius: BorderRadius.circular(40),
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(32),
+        border: Border.all(color: AppTheme.primaryMaroon.withOpacity(0.1), width: 1),
+        boxShadow: [
+          BoxShadow(
+            color: AppTheme.primaryMaroon.withOpacity(0.05),
+            blurRadius: 20,
+            offset: const Offset(0, 10),
+          ),
+        ],
       ),
-      child: Column(
+      child: Row(
         children: [
           Stack(
             alignment: Alignment.center,
             children: [
               SizedBox(
-                width: 80,
-                height: 80,
+                width: 70,
+                height: 70,
                 child: CircularProgressIndicator(
-                  value: progress == 0 ? 0.1 : progress,
-                  strokeWidth: 8,
-                  backgroundColor: Colors.white,
-                  valueColor: AlwaysStoppedAnimation<Color>(const Color(0xFF9D4C5E).withOpacity(0.6)),
+                  value: progress == 0 ? 0.05 : progress,
+                  strokeWidth: 6,
+                  backgroundColor: const Color(0xFFFDECEC),
+                  valueColor: AlwaysStoppedAnimation<Color>(AppTheme.primaryMaroon),
+                  strokeCap: StrokeCap.round,
                 ),
               ),
               Text(
                 '$percentage%',
-                style: const TextStyle(color: Color(0xFF2C2C2E), fontSize: 18, fontWeight: FontWeight.w800),
+                style: TextStyle(color: AppTheme.primaryMaroon, fontSize: 16, fontWeight: FontWeight.w800),
               ),
             ],
           ),
-          const SizedBox(height: 20),
-          const Text(
-            'Profile Strength',
-            style: TextStyle(color: Color(0xFF2C2C2E), fontSize: 17, fontWeight: FontWeight.w800),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            percentage < 100 ? 'Add more moments to reach 100%' : 'Your profile is looking great!',
-            style: const TextStyle(color: Color(0xFF8E8E93), fontSize: 13, fontWeight: FontWeight.w500),
+          const SizedBox(width: 20),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Profile Strength',
+                  style: TextStyle(color: Color(0xFF2C2C2E), fontSize: 18, fontWeight: FontWeight.w800),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  percentage < 100 
+                      ? 'Add more moments to reach 100% and get more matches!' 
+                      : 'Your profile is looking great!',
+                  style: const TextStyle(color: Color(0xFF8E8E93), fontSize: 13, fontWeight: FontWeight.w500, height: 1.4),
+                ),
+              ],
+            ),
           ),
         ],
       ),
@@ -277,12 +305,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
       },
       child: Container(
         margin: EdgeInsets.only(bottom: isLast ? 0 : 16),
-        padding: const EdgeInsets.all(20),
+        padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 20),
         decoration: BoxDecoration(
           color: Colors.white,
-          borderRadius: BorderRadius.circular(32),
+          borderRadius: BorderRadius.circular(28),
+          border: Border.all(color: const Color(0xFFF2F2F7), width: 1),
           boxShadow: [
-            BoxShadow(color: Colors.black.withOpacity(0.01), blurRadius: 10, offset: const Offset(0, 4)),
+            BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 15, offset: const Offset(0, 5)),
           ],
         ),
         child: Row(
@@ -290,8 +319,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
             Container(
               width: 52,
               height: 52,
-              decoration: const BoxDecoration(color: Color(0xFFF7F7F8), shape: BoxShape.circle),
-              child: Icon(icon, color: const Color(0xFF7D4249), size: 24),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFDECEC),
+                shape: BoxShape.circle,
+                border: Border.all(color: Colors.white, width: 2),
+                boxShadow: [
+                  BoxShadow(color: const Color(0xFFFDECEC), blurRadius: 10, spreadRadius: 1),
+                ],
+              ),
+              child: Icon(icon, color: AppTheme.primaryMaroon, size: 24),
             ),
             const SizedBox(width: 16),
             Expanded(
@@ -345,16 +381,36 @@ class _ProfileScreenState extends State<ProfileScreen> {
           width: double.infinity,
           padding: const EdgeInsets.all(24),
           decoration: BoxDecoration(
-            color: const Color(0xFFF7F7F8),
+            color: Colors.white,
             borderRadius: BorderRadius.circular(32),
+            border: Border.all(color: const Color(0xFFF2F2F7)),
+            boxShadow: [
+              BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 10, offset: const Offset(0, 4)),
+            ],
           ),
-          child: Text(
-            bio,
-            style: const TextStyle(
-              color: Color(0xFF6B6B6B),
-              fontSize: 15,
-              height: 1.6,
-              fontWeight: FontWeight.w500,
+          child: IntrinsicHeight(
+            child: Row(
+              children: [
+                Container(
+                  width: 4,
+                  decoration: BoxDecoration(
+                    color: AppTheme.primaryMaroon,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Text(
+                    bio,
+                    style: const TextStyle(
+                      color: Color(0xFF6B6B6B),
+                      fontSize: 15,
+                      height: 1.6,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
         ),

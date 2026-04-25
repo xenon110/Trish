@@ -14,6 +14,7 @@ class UserProfile {
   final double? longitude;
   final List<String> moments;
   final DateTime? locationUpdatedAt;
+  final DateTime? lastActiveAt;
 
   UserProfile({
     required this.id,
@@ -31,7 +32,13 @@ class UserProfile {
     this.longitude,
     this.moments = const [],
     this.locationUpdatedAt,
+    this.lastActiveAt,
   });
+
+  bool get isOnline {
+    if (lastActiveAt == null) return false;
+    return DateTime.now().toUtc().difference(lastActiveAt!.toUtc()).inMinutes < 15;
+  }
 
   factory UserProfile.fromJson(Map<String, dynamic>? json) {
     if (json == null) {
@@ -64,6 +71,7 @@ class UserProfile {
       latitude: json['latitude'] != null ? (json['latitude'] as num).toDouble() : null,
       longitude: json['longitude'] != null ? (json['longitude'] as num).toDouble() : null,
       locationUpdatedAt: json['location_updated_at'] != null ? DateTime.parse(json['location_updated_at']) : null,
+      lastActiveAt: json['last_active_at'] != null ? DateTime.parse(json['last_active_at']) : null,
     );
   }
 

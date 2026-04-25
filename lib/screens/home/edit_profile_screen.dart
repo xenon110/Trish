@@ -199,8 +199,10 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
 
     try {
       final Uint8List fileBytes = await image.readAsBytes();
-      final String fileName = '${_authService.currentUser!.id}/avatar.jpg';
-      final String bucket = 'avatars';
+      // Using 'moments' bucket as it is confirmed to exist in the project
+      final String bucket = 'moments';
+      // Use a timestamped filename to prevent caching issues
+      final String fileName = '${_authService.currentUser!.id}/avatar_${DateTime.now().millisecondsSinceEpoch}.jpg';
 
       final String publicUrl = await _authService.uploadImage(
         bucket,

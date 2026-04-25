@@ -21,7 +21,7 @@ class ChatMessage {
       matchId: json['match_id'],
       senderId: json['sender_id'],
       content: json['content'],
-      createdAt: DateTime.parse(json['created_at']),
+      createdAt: DateTime.parse(json['created_at']).toLocal(),
       isMe: json['sender_id'] == currentUserId,
     );
   }

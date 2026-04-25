@@ -3,6 +3,8 @@ import '../../core/theme.dart';
 import '../../core/ui_helpers.dart';
 import '../../core/auth_service.dart';
 import '../auth/login_screen.dart';
+import 'subscription_screen.dart';
+import 'personal_info_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -12,13 +14,56 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
+  final AuthService _authService = AuthService();
+  bool _isLoading = false;
+
   // Local state for toggles
-  bool _isPrivateProfile = true;
-  bool _showOnlineStatus = false;
+  bool _isPrivateProfile = false;
+  bool _showOnlineStatus = true;
   bool _readReceipts = true;
   bool _pushNotifications = true;
   bool _emailUpdates = false;
   bool _newMatches = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadPreferences();
+  }
+
+  void _loadPreferences() {
+    final metadata = _authService.currentUser?.userMetadata;
+    if (metadata != null) {
+      setState(() {
+        _isPrivateProfile = metadata['pref_private_profile'] ?? false;
+        _showOnlineStatus = metadata['pref_show_online'] ?? true;
+        _readReceipts = metadata['pref_read_receipts'] ?? true;
+        _pushNotifications = metadata['pref_push_notifs'] ?? true;
+        _emailUpdates = metadata['pref_email_updates'] ?? false;
+        _newMatches = metadata['pref_new_matches'] ?? true;
+      });
+    }
+  }
+
+  Future<void> _updatePreference(String key, bool value, Function(bool) updateState) async {
+    setState(() {
+      updateState(value);
+      _isLoading = true;
+    });
+
+    try {
+      final metadata = Map<String, dynamic>.from(_authService.currentUser?.userMetadata ?? {});
+      metadata[key] = value;
+      await _authService.updateProfile(metadata);
+    } catch (e) {
+      if (mounted) UIHelpers.showSnackBar(context, 'Failed to save preference');
+      setState(() {
+        updateState(!value);
+      });
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -66,19 +111,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   'Private Profile',
                   'Only approved followers can see your posts.',
                   _isPrivateProfile,
-                  (v) => setState(() => _isPrivateProfile = v),
+                  (v) => _updatePreference('pref_private_profile', v, (val) => _isPrivateProfile = val),
                 ),
                 _buildSwitchItem(
                   'Show Online Status',
                   'Let others know when you\'re active.',
                   _showOnlineStatus,
-                  (v) => setState(() => _showOnlineStatus = v),
+                  (v) => _updatePreference('pref_show_online', v, (val) => _showOnlineStatus = val),
                 ),
                 _buildSwitchItem(
                   'Read Receipts',
                   'Show when you\'ve read messages.',
                   _readReceipts,
-                  (v) => setState(() => _readReceipts = v),
+                  (v) => _updatePreference('pref_read_receipts', v, (val) => _readReceipts = val),
                   isLast: true,
                 ),
               ],
@@ -93,19 +138,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   'Push Notifications',
                   '',
                   _pushNotifications,
-                  (v) => setState(() => _pushNotifications = v),
+                  (v) => _updatePreference('pref_push_notifs', v, (val) => _pushNotifications = val),
                 ),
                 _buildSwitchItem(
                   'Email Updates',
                   '',
                   _emailUpdates,
-                  (v) => setState(() => _emailUpdates = v),
+                  (v) => _updatePreference('pref_email_updates', v, (val) => _emailUpdates = val),
                 ),
                 _buildSwitchItem(
                   'New Matches',
                   '',
                   _newMatches,
-                  (v) => setState(() => _newMatches = v),
+                  (v) => _updatePreference('pref_new_matches', v, (val) => _newMatches = val),
                   isLast: true,
                 ),
               ],
@@ -257,7 +302,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Widget _buildLinkItem(String title, {bool isDestructive = false, bool isLast = false}) {
     return InkWell(
-      onTap: () => UIHelpers.showFeatureComingSoon(context),
+      onTap: () {
+        if (title == 'Subscription') {
+          Navigator.push(context, MaterialPageRoute(builder: (context) => const SubscriptionScreen()));
+        } else if (title == 'Personal Information') {
+          Navigator.push(context, MaterialPageRoute(builder: (context) => const PersonalInfoScreen()));
+        } else {
+          UIHelpers.showFeatureComingSoon(context);
+        }
+      },
       child: Column(
         children: [
           Row(
