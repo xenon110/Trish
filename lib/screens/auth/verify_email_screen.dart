@@ -4,6 +4,7 @@ import '../../core/theme.dart';
 import '../../core/auth_service.dart';
 import '../../core/ui_helpers.dart';
 import '../home/main_navigation_screen.dart';
+import 'profile_onboarding_screen.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class VerifyEmailScreen extends StatefulWidget {
@@ -14,20 +15,36 @@ class VerifyEmailScreen extends StatefulWidget {
   State<VerifyEmailScreen> createState() => _VerifyEmailScreenState();
 }
 
-class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
+class _VerifyEmailScreenState extends State<VerifyEmailScreen> with WidgetsBindingObserver {
   final AuthService _authService = AuthService();
   bool _isLoading = false;
+  bool _isVerified = false;
   late StreamSubscription<AuthState> _authSubscription;
   Timer? _refreshTimer;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     
+    // 0. Check if user is ALREADY verified (e.g. if link was clicked before screen opened)
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _checkStatusSilently();
+    });
+
     // 1. Listen for Auth State changes (Fired when deep link opens the app)
-    _authSubscription = _authService.authStateChanges.listen((data) {
-      if (data.session != null && data.session!.user.emailConfirmedAt != null) {
-        _goToHome();
+    _authSubscription = _authService.authStateChanges.listen((data) async {
+      debugPrint('AUTH_EVENT: ${data.event}');
+      
+      // If we get a signedIn event, it's likely from the email link
+      if (data.event == AuthChangeEvent.signedIn || data.event == AuthChangeEvent.userUpdated) {
+        await _authService.reloadUser();
+        final user = _authService.currentUser;
+        debugPrint('USER_STATUS: emailConfirmedAt = ${user?.emailConfirmedAt}');
+        
+        if (user?.emailConfirmedAt != null) {
+          _goToHome();
+        }
       }
     });
 
@@ -49,12 +66,73 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
     }
   }
 
-  void _goToHome() {
-    if (mounted) {
+  void _goToHome() async {
+    if (mounted && !_isVerified) {
+      setState(() {
+        _isVerified = true;
+      });
       _refreshTimer?.cancel();
-      UIHelpers.showSnackBar(context, 'Email Verified! Welcome to TRISH.');
+      _countdownTimer?.cancel();
+      
+      // 1. Show the Success Dialog
+      await showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SizedBox(height: 10),
+              const Icon(Icons.check_circle_rounded, color: Colors.green, size: 80),
+              const SizedBox(height: 20),
+              const Text(
+                'Email Verified!',
+                style: TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.bold,
+                  color: AppTheme.textDark,
+                ),
+              ),
+              const SizedBox(height: 10),
+              const Text(
+                'Welcome to TRISH. Your account is now ready.',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: AppTheme.textLight),
+              ),
+              const SizedBox(height: 24),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: () => Navigator.pop(context),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppTheme.primaryMaroon,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                  ),
+                  child: const Text('Get Started', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+
+      if (!mounted) return;
+      
+      // 2. Check if profile is complete (Onboarding)
+      final profile = await _authService.getCurrentProfile();
+      
+      if (!mounted) return;
+
+      Widget nextScreen = const MainNavigationScreen();
+      if (profile == null || profile.birthday == null) {
+        nextScreen = ProfileOnboardingScreen();
+      }
+
+      // 3. Redirect to Next Screen
       Navigator.of(context).pushAndRemoveUntil(
-        MaterialPageRoute(builder: (context) => const MainNavigationScreen()),
+        MaterialPageRoute(builder: (context) => nextScreen),
         (route) => false,
       );
     }
@@ -103,7 +181,16 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      // User returned to the app (likely after clicking the link in their email)
+      _checkStatusSilently();
+    }
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _authSubscription.cancel();
     _refreshTimer?.cancel();
     _countdownTimer?.cancel();
@@ -142,15 +229,20 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
                     ),
                   ],
                 ),
-                child: const Center(
+                child: Center(
                   child: Stack(
                     alignment: Alignment.center,
                     children: [
-                      CircularProgressIndicator(
-                        valueColor: AlwaysStoppedAnimation<Color>(AppTheme.primaryMaroon),
-                        strokeWidth: 2,
+                      if (!_isVerified)
+                        const CircularProgressIndicator(
+                          valueColor: AlwaysStoppedAnimation<Color>(AppTheme.primaryMaroon),
+                          strokeWidth: 2,
+                        ),
+                      Icon(
+                        _isVerified ? Icons.check_circle_rounded : Icons.mark_email_unread_outlined, 
+                        color: _isVerified ? Colors.green : AppTheme.primaryMaroon, 
+                        size: 40,
                       ),
-                      Icon(Icons.mark_email_unread_outlined, color: AppTheme.primaryMaroon, size: 40),
                     ],
                   ),
                 ),
@@ -197,7 +289,20 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
                   fontStyle: FontStyle.italic,
                 ),
               ),
-              const SizedBox(height: 80),
+              const SizedBox(height: 30),
+              
+              // Added a manual refresh button in case auto-detection has a delay
+              if (!_isVerified)
+                TextButton.icon(
+                  onPressed: _isLoading ? null : _checkStatusSilently,
+                  icon: const Icon(Icons.refresh, color: AppTheme.textLight, size: 18),
+                  label: const Text(
+                    'I\'ve clicked the link',
+                    style: TextStyle(color: AppTheme.textLight, fontWeight: FontWeight.w600),
+                  ),
+                ),
+
+              const SizedBox(height: 50),
               TextButton.icon(
                 onPressed: _isLoading || _resendCountdown > 0 ? null : _resendEmail,
                 icon: Icon(

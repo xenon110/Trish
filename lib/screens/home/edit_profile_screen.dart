@@ -1,591 +1,482 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
-import '../../core/theme.dart';
-import '../../core/constants.dart';
-import '../../core/auth_service.dart';
+import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:geocoding/geocoding.dart';
 import 'package:http/http.dart' as http;
-import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:image_picker/image_picker.dart';
 import 'dart:typed_data';
+import '../../core/theme.dart';
+import '../../core/auth_service.dart';
 
 class EditProfileScreen extends StatefulWidget {
   const EditProfileScreen({super.key});
-
   @override
   State<EditProfileScreen> createState() => _EditProfileScreenState();
 }
 
 class _EditProfileScreenState extends State<EditProfileScreen> {
-  final AuthService _authService = AuthService();
-  late TextEditingController _nameController;
-  late TextEditingController _bioController;
-  late TextEditingController _ageController;
-  late TextEditingController _locationController;
-  late TextEditingController _genderController;
-  late TextEditingController _hobbyController;
-  List<String> _interests = [];
-  bool _isLoading = false;
-  bool _isLocationLoading = false;
-  double? _latitude;
-  double? _longitude;
-  String? _avatarUrl;
+  final AuthService _auth = AuthService();
+  static const _maroon = AppTheme.primaryMaroon;
+  Map<String, dynamic> _data = {};
+  bool _isUploadingAvatar = false;
+  bool _isSaving = false;
+  bool _hasChanges = false;
 
   @override
   void initState() {
     super.initState();
-    final user = _authService.currentUser;
-    final metadata = user?.userMetadata;
-    
-    _nameController = TextEditingController(text: metadata?['full_name'] ?? '');
-    _bioController = TextEditingController(text: metadata?['bio'] ?? 'Tell us about yourself...');
-    _ageController = TextEditingController(text: (metadata?['age'] ?? 18).toString());
-    _locationController = TextEditingController(text: metadata?['location'] ?? 'New York');
-    _genderController = TextEditingController(text: metadata?['gender'] ?? 'Man');
-    _hobbyController = TextEditingController(text: metadata?['hobby'] ?? 'Photography');
-    
-    _latitude = metadata?['latitude'] != null ? (metadata?['latitude'] as num).toDouble() : null;
-    _longitude = metadata?['longitude'] != null ? (metadata?['longitude'] as num).toDouble() : null;
-    _avatarUrl = metadata?['avatar_url'];
-    
-    final interestsData = metadata?['interests'];
-    if (interestsData is List) {
-      _interests = List<String>.from(interestsData);
-    } else {
-      _interests = ['Photography', 'Dogs', 'Coffee']; // Defaults
-    }
+    _data = Map<String, dynamic>.from(_auth.currentUser?.userMetadata ?? {});
   }
 
-  @override
-  void dispose() {
-    _nameController.dispose();
-    _bioController.dispose();
-    _ageController.dispose();
-    _locationController.dispose();
-    _genderController.dispose();
-    _hobbyController.dispose();
-    super.dispose();
+  String _val(String key, [String fallback = 'Add']) {
+    final v = _data[key];
+    if (v == null || v.toString().isEmpty) return fallback;
+    return v.toString();
   }
 
-  Future<void> _getCurrentLocation() async {
-    setState(() => _isLocationLoading = true);
-    
+  void _onUpdate(Map<String, dynamic> updates) {
+    setState(() {
+      _data.addAll(updates);
+      _hasChanges = true;
+    });
+  }
+
+  Future<void> _saveAll() async {
+    setState(() => _isSaving = true);
     try {
-      // 1. Check if location services are enabled
-      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
-      if (!serviceEnabled) {
-        throw 'Location services are disabled.';
-      }
-
-      // 2. Check and request permissions
-      LocationPermission permission = await Geolocator.checkPermission();
-      if (permission == LocationPermission.denied) {
-        permission = await Geolocator.requestPermission();
-        if (permission == LocationPermission.denied) {
-          throw 'Location permissions are denied.';
-        }
-      }
-      
-      if (permission == LocationPermission.deniedForever) {
-        throw 'Location permissions are permanently denied.';
-      }
-
-      // 3. Get coordinates
-      Position position = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.high
-      );
-
-      _latitude = position.latitude;
-      _longitude = position.longitude;
-
-      // 4. Reverse geocode (with multiple retries)
-      String address = "Location Found";
-      int retries = 0;
-      bool success = false;
-      
-      while (retries < 2 && !success) {
-        try {
-          // Increase delay on each retry
-          await Future.delayed(Duration(milliseconds: 500 * (retries + 1)));
-          
-          List<Placemark> placemarks = await placemarkFromCoordinates(
-            position.latitude, 
-            position.longitude
-          ).timeout(const Duration(seconds: 5));
-
-          if (placemarks.isNotEmpty) {
-            final Placemark place = placemarks[0];
-            final List<String> parts = [];
-            
-            if (place.locality != null && place.locality!.isNotEmpty) parts.add(place.locality!);
-            if (place.administrativeArea != null && place.administrativeArea!.isNotEmpty) parts.add(place.administrativeArea!);
-            
-            if (parts.isNotEmpty) {
-              address = parts.join(", ");
-              success = true;
-            }
-          }
-        } catch (e) {
-          retries++;
-        }
-      }
-
-      if (!success) {
-        try {
-          // Final fallback to OpenStreetMap web API
-          final url = Uri.parse('https://nominatim.openstreetmap.org/reverse?lat=${position.latitude}&lon=${position.longitude}&format=json&addressdetails=1');
-          final response = await http.get(url, headers: {'User-Agent': 'TrishApp/1.0'}).timeout(const Duration(seconds: 5));
-          
-          if (response.statusCode == 200) {
-            final data = json.decode(response.body);
-            final addressMap = data['address'];
-            if (addressMap != null) {
-              final String city = addressMap['city'] ?? addressMap['town'] ?? addressMap['village'] ?? addressMap['suburb'] ?? '';
-              final String state = addressMap['state'] ?? addressMap['country'] ?? '';
-              
-              if (city.isNotEmpty && state.isNotEmpty) {
-                address = "$city, $state";
-              } else if (city.isNotEmpty) {
-                address = city;
-              } else if (state.isNotEmpty) {
-                address = state;
-              }
-              success = true;
-            }
-          }
-        } catch (e) {
-          // Silent fail on web fallback
-        }
-      }
-
-      if (!success) {
-        // Final fallback if everything fails
-        address = "${position.latitude.toStringAsFixed(2)}, ${position.longitude.toStringAsFixed(2)}";
-      }
-      
+      await _auth.updateProfile(_data);
       if (mounted) {
-        setState(() {
-          _locationController.text = address;
-        });
-      }
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Location updated successfully!')),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Could not get location: $e')),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _isLocationLoading = false);
-    }
-  }
-
-  Future<void> _pickAndUploadImage() async {
-    final ImagePicker picker = ImagePicker();
-    final XFile? image = await picker.pickImage(
-      source: ImageSource.gallery,
-      imageQuality: 70,
-      maxWidth: 800,
-    );
-
-    if (image == null) return;
-
-    setState(() => _isLoading = true);
-
-    try {
-      final Uint8List fileBytes = await image.readAsBytes();
-      // Using 'moments' bucket as it is confirmed to exist in the project
-      final String bucket = 'moments';
-      // Use a timestamped filename to prevent caching issues
-      final String fileName = '${_authService.currentUser!.id}/avatar_${DateTime.now().millisecondsSinceEpoch}.jpg';
-
-      final String publicUrl = await _authService.uploadImage(
-        bucket,
-        fileName,
-        fileBytes,
-      );
-
-      setState(() {
-        _avatarUrl = publicUrl;
-      });
-
-      // Automatically save to profile
-      await _authService.updateProfile({
-        'avatar_url': _avatarUrl,
-      });
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Profile picture updated!')),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Upload failed: $e')),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _isLoading = false);
-    }
-  }
-
-  Future<void> _saveChanges() async {
-    setState(() => _isLoading = true);
-    try {
-      await _authService.updateProfile({
-        'full_name': _nameController.text.trim(),
-        'bio': _bioController.text.trim(),
-        'age': int.tryParse(_ageController.text.trim()) ?? 18,
-        'location': _locationController.text.trim(),
-        'latitude': _latitude,
-        'longitude': _longitude,
-        'location_updated_at': DateTime.now().toIso8601String(),
-        'gender': _genderController.text.trim(),
-        'hobby': _hobbyController.text.trim(),
-        'interests': _interests,
-        'avatar_url': _avatarUrl,
-      });
-      if (mounted) {
+        _snack('Profile updated!', ok: true);
+        setState(() => _hasChanges = false);
+        // Small delay to let the user see the snackbar if we were to stay, 
+        // but typically popping is better.
         Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Text('Profile updated successfully!', style: TextStyle(fontWeight: FontWeight.bold)),
-            backgroundColor: const Color(0xFF34C759),
-            behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-          ),
-        );
       }
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: ${e.toString()}')),
-        );
-      }
+      _snack('Failed to save: $e');
     } finally {
-      if (mounted) setState(() => _isLoading = false);
+      if (mounted) setState(() => _isSaving = false);
     }
   }
 
-  void _showAddTagDialog() {
-    final TextEditingController tagController = TextEditingController();
-    showDialog(
+  // ── Avatar ──────────────────────────────────────────────────
+  Future<void> _pickAvatar() async {
+    final picker = ImagePicker();
+    final XFile? img = await picker.pickImage(source: ImageSource.gallery, imageQuality: 75, maxWidth: 800);
+    if (img == null) return;
+    setState(() => _isUploadingAvatar = true);
+    try {
+      final Uint8List bytes = await img.readAsBytes();
+      final fn = '${_auth.currentUser!.id}/avatar_${DateTime.now().millisecondsSinceEpoch}.jpg';
+      final url = await _auth.uploadImage('moments', fn, bytes);
+      _onUpdate({'avatar_url': url});
+      _snack('Photo uploaded! Don\'t forget to save.', ok: true);
+    } catch (e) {
+      _snack('Failed: $e');
+    } finally {
+      if (mounted) setState(() => _isUploadingAvatar = false);
+    }
+  }
+
+  // ── GPS ─────────────────────────────────────────────────────
+  Future<void> _gps(Function(String) onDone) async {
+    try {
+      LocationPermission p = await Geolocator.checkPermission();
+      if (p == LocationPermission.denied) p = await Geolocator.requestPermission();
+      if (p == LocationPermission.deniedForever || p == LocationPermission.denied) return;
+      Position? pos;
+      if (!kIsWeb) pos = await Geolocator.getLastKnownPosition();
+      pos ??= await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.low, timeLimit: const Duration(seconds: 6));
+      String city = '${pos.latitude.toStringAsFixed(2)}, ${pos.longitude.toStringAsFixed(2)}';
+      if (kIsWeb) {
+        final r = await http.get(Uri.parse('https://nominatim.openstreetmap.org/reverse?lat=${pos.latitude}&lon=${pos.longitude}&format=json'), headers: {'Accept-Language': 'en'});
+        if (r.statusCode == 200) {
+          final j = jsonDecode(r.body)['address'] as Map?;
+          final c = j?['city'] ?? j?['town'] ?? j?['village'] ?? '';
+          final co = j?['country'] ?? '';
+          if (c.toString().isNotEmpty) city = co.toString().isNotEmpty ? '$c, $co' : c.toString();
+        }
+      } else {
+        final marks = await placemarkFromCoordinates(pos.latitude, pos.longitude);
+        if (marks.isNotEmpty) {
+          final pl = marks.first;
+          final c = pl.locality ?? pl.administrativeArea ?? '';
+          final co = pl.country ?? '';
+          if (c.isNotEmpty) city = co.isNotEmpty ? '$c, $co' : c;
+        }
+      }
+      onDone(city);
+    } catch (_) {}
+  }
+
+  void _snack(String msg, {bool ok = false}) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(msg, style: const TextStyle(fontWeight: FontWeight.w600)),
+      backgroundColor: ok ? const Color(0xFF34C759) : Colors.redAccent,
+      behavior: SnackBarBehavior.floating,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      margin: const EdgeInsets.all(16),
+    ));
+  }
+
+  // ── Bottom sheets ────────────────────────────────────────────
+
+  void _textSheet(String title, String key, {bool isNumber = false, int maxLines = 1, String? hint}) {
+    final ctrl = TextEditingController(text: _val(key, ''));
+    showModalBottomSheet(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Add Interest'),
-        content: TextField(
-          controller: tagController,
-          autofocus: true,
-          decoration: const InputDecoration(hintText: 'Enter interest (e.g. Hiking)'),
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
-          TextButton(
-            onPressed: () {
-              if (tagController.text.trim().isNotEmpty) {
-                setState(() {
-                  _interests.add(tagController.text.trim());
-                });
-              }
-              Navigator.pop(context);
-            },
-            child: const Text('Add'),
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(28))),
+      builder: (ctx) => Padding(
+        padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom + 24, left: 24, right: 24, top: 20),
+        child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Center(child: Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(4)))),
+          const SizedBox(height: 20),
+          Text(title, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
+          const SizedBox(height: 20),
+          TextField(
+            controller: ctrl,
+            maxLines: maxLines,
+            autofocus: true,
+            keyboardType: isNumber ? TextInputType.number : TextInputType.text,
+            inputFormatters: isNumber ? [FilteringTextInputFormatter.digitsOnly] : [],
+            decoration: InputDecoration(
+              hintText: hint ?? 'Enter $title',
+              filled: true,
+              fillColor: const Color(0xFFF5F5F5),
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none),
+              focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: const BorderSide(color: _maroon, width: 1.5)),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            ),
+            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
           ),
-        ],
+          const SizedBox(height: 20),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton(
+              onPressed: () {
+                Navigator.pop(ctx);
+                final v = isNumber ? (int.tryParse(ctrl.text.trim()) ?? 0) : ctrl.text.trim();
+                if (ctrl.text.trim().isNotEmpty) _onUpdate({key: v});
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: _maroon,
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              ),
+              child: const Text('Save', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 16)),
+            ),
+          ),
+        ]),
       ),
     );
   }
 
+  void _locationSheet(String title, String key) {
+    final ctrl = TextEditingController(text: _val(key, ''));
+    bool detecting = false;
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(28))),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setM) => Padding(
+          padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom + 24, left: 24, right: 24, top: 20),
+          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Center(child: Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(4)))),
+            const SizedBox(height: 20),
+            Text(title, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
+            const SizedBox(height: 20),
+            TextField(
+              controller: ctrl,
+              autofocus: true,
+              decoration: InputDecoration(
+                hintText: 'City, Country',
+                filled: true,
+                fillColor: const Color(0xFFF5F5F5),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none),
+                focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: const BorderSide(color: _maroon, width: 1.5)),
+                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+              ),
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
+            ),
+            const SizedBox(height: 12),
+            GestureDetector(
+              onTap: detecting ? null : () async {
+                setM(() => detecting = true);
+                await _gps((city) { ctrl.text = city; });
+                setM(() => detecting = false);
+              },
+              child: Row(children: [
+                Icon(Icons.my_location_rounded, size: 16, color: detecting ? Colors.grey : _maroon),
+                const SizedBox(width: 6),
+                Text(detecting ? 'Detecting...' : 'Use current location', style: TextStyle(color: detecting ? Colors.grey : _maroon, fontWeight: FontWeight.w600, fontSize: 14)),
+              ]),
+            ),
+            const SizedBox(height: 20),
+            SizedBox(width: double.infinity, child: ElevatedButton(
+              onPressed: () { Navigator.pop(ctx); if (ctrl.text.trim().isNotEmpty) _onUpdate({key: ctrl.text.trim()}); },
+              style: ElevatedButton.styleFrom(backgroundColor: _maroon, padding: const EdgeInsets.symmetric(vertical: 16), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))),
+              child: const Text('Save', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 16)),
+            )),
+          ]),
+        ),
+      ),
+    );
+  }
+
+  void _optionsSheet(String title, String key, List<String> options) {
+    final current = _val(key, '');
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(28))),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setM) {
+          String selected = current;
+          return Column(mainAxisSize: MainAxisSize.min, children: [
+            const SizedBox(height: 12),
+            Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(4))),
+            const SizedBox(height: 20),
+            Text(title, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
+            const SizedBox(height: 16),
+            Flexible(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.symmetric(horizontal: 24),
+                child: Wrap(
+                  spacing: 10, runSpacing: 10,
+                  children: options.map((o) {
+                    final sel = selected == o;
+                    return GestureDetector(
+                      onTap: () {
+                        setM(() => selected = o);
+                        Future.delayed(const Duration(milliseconds: 180), () {
+                          Navigator.pop(ctx);
+                          _onUpdate({key: o});
+                        });
+                      },
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 160),
+                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                        decoration: BoxDecoration(
+                          color: sel ? _maroon : Colors.white,
+                          borderRadius: BorderRadius.circular(50),
+                          border: Border.all(color: sel ? _maroon : Colors.grey[200]!, width: 1.5),
+                          boxShadow: sel ? [BoxShadow(color: _maroon.withOpacity(0.25), blurRadius: 8, offset: const Offset(0, 3))] : [],
+                        ),
+                        child: Text(o, style: TextStyle(color: sel ? Colors.white : const Color(0xFF333333), fontWeight: FontWeight.w600, fontSize: 14)),
+                      ),
+                    );
+                  }).toList(),
+                ),
+              ),
+            ),
+            const SizedBox(height: 24),
+          ]);
+        },
+      ),
+    );
+  }
+
+  void _multiOptionsSheet(String title, String key, List<String> options) {
+    List<String> current = [];
+    if (_data[key] is List) current = List<String>.from(_data[key]);
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(28))),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setM) => DraggableScrollableSheet(
+          expand: false,
+          initialChildSize: 0.6,
+          maxChildSize: 0.9,
+          builder: (_, sc) => Column(children: [
+            const SizedBox(height: 12),
+            Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(4))),
+            const SizedBox(height: 20),
+            Text(title, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
+            const SizedBox(height: 16),
+            Expanded(
+              child: SingleChildScrollView(
+                controller: sc,
+                padding: const EdgeInsets.symmetric(horizontal: 24),
+                child: Wrap(
+                  spacing: 10, runSpacing: 10,
+                  children: options.map((o) {
+                    final sel = current.contains(o);
+                    return GestureDetector(
+                      onTap: () => setM(() => sel ? current.remove(o) : current.add(o)),
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 160),
+                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                        decoration: BoxDecoration(
+                          color: sel ? _maroon : Colors.white,
+                          borderRadius: BorderRadius.circular(50),
+                          border: Border.all(color: sel ? _maroon : Colors.grey[200]!, width: 1.5),
+                          boxShadow: sel ? [BoxShadow(color: _maroon.withOpacity(0.25), blurRadius: 8, offset: const Offset(0, 3))] : [],
+                        ),
+                        child: Text(o, style: TextStyle(color: sel ? Colors.white : const Color(0xFF333333), fontWeight: FontWeight.w600, fontSize: 14)),
+                      ),
+                    );
+                  }).toList(),
+                ),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.all(24),
+              child: SizedBox(width: double.infinity, child: ElevatedButton(
+                onPressed: () { Navigator.pop(ctx); _onUpdate({key: current}); },
+                style: ElevatedButton.styleFrom(backgroundColor: _maroon, padding: const EdgeInsets.symmetric(vertical: 16), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))),
+                child: const Text('Save', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 16)),
+              )),
+            ),
+          ]),
+        ),
+      ),
+    );
+  }
+
+  // ── Build ────────────────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
+    final avatarUrl = _data['avatar_url'];
     return Scaffold(
-      backgroundColor: const Color(0xFFFCFAFA),
+      backgroundColor: const Color(0xFFF7F7F7),
       appBar: AppBar(
-        backgroundColor: Colors.transparent,
+        backgroundColor: Colors.white,
         elevation: 0,
-        leading: IconButton(
-          icon: Icon(Icons.arrow_back_ios_new, color: AppTheme.primaryMaroon),
-          onPressed: () {
-            if (Navigator.of(context).canPop()) {
-              Navigator.of(context).pop();
-            }
-          },
-        ),
-        title: const Text(
-          'Edit Profile',
-          style: TextStyle(
-            color: Color(0xFF2C2C2E),
-            fontWeight: FontWeight.w800,
-            fontSize: 20,
-          ),
-        ),
+        leading: IconButton(icon: const Icon(Icons.arrow_back_ios_new, size: 18, color: Color(0xFF1A1A1A)), onPressed: () => Navigator.pop(context)),
+        title: const Text('Edit Profile', style: TextStyle(color: Color(0xFF1A1A1A), fontWeight: FontWeight.w800, fontSize: 18)),
         centerTitle: true,
-      ),
-      body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              _buildImageUpload(),
-              const SizedBox(height: 32),
-              _buildSectionTitle('Name'),
-              _buildTextField(_nameController, 'Your Name'),
-              const SizedBox(height: 24),
-              _buildSectionTitle('Bio'),
-              _buildTextField(_bioController, 'Tell us about yourself...', maxLines: 4),
-              const SizedBox(height: 24),
-              Row(
-                children: [
-                  Expanded(
-                    child: Column(
-                      children: [
-                        _buildSectionTitle('Age'),
-                        _buildTextField(_ageController, 'Age', keyboardType: TextInputType.number),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            _buildSectionTitle('Location'),
-                            _buildLocationPickerButton(),
-                          ],
-                        ),
-                        _buildTextField(_locationController, 'e.g. New York'),
-                      ],
-                    ),
-                  ),
-                ],
+        actions: [
+          if (_isSaving) 
+            const Padding(padding: EdgeInsets.all(16), child: SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: _maroon)))
+          else
+            TextButton(
+              onPressed: _hasChanges ? _saveAll : null,
+              child: Text(
+                'Save',
+                style: TextStyle(
+                  color: _hasChanges ? _maroon : Colors.grey,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 16,
+                ),
               ),
-              const SizedBox(height: 24),
-              Row(
-                children: [
-                  Expanded(
-                    child: Column(
-                      children: [
-                        _buildSectionTitle('Gender'),
-                        _buildTextField(_genderController, 'e.g. Man, Woman'),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: Column(
-                      children: [
-                        _buildSectionTitle('Primary Hobby'),
-                        _buildTextField(_hobbyController, 'e.g. Hiking'),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 24),
-              _buildSectionTitle('Interests / Tags'),
-              _buildTagEditor(),
-              const SizedBox(height: 48),
-              _buildSaveButton(),
-              const SizedBox(height: 24),
-            ],
-          ),
-        ),
+            ),
+        ],
       ),
-    );
-  }
+      body: SingleChildScrollView(
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
 
-  Widget _buildImageUpload() {
-    return Stack(
-      children: [
-        CircleAvatar(
-          radius: 64,
-          backgroundColor: Colors.grey.shade200,
-          backgroundImage: _avatarUrl != null 
-              ? NetworkImage(_avatarUrl!) 
-              : const AssetImage('assets/image/connection.jpg') as ImageProvider,
-        ),
-        Positioned(
-          bottom: 0,
-          right: 0,
-          child: GestureDetector(
-            onTap: _pickAndUploadImage,
-            child: Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: AppTheme.primaryMaroon,
-                shape: BoxShape.circle,
-                border: Border.all(color: Colors.white, width: 3),
-                boxShadow: [
-                  BoxShadow(
-                    color: AppTheme.primaryMaroon.withOpacity(0.3),
-                    blurRadius: 10,
-                    offset: const Offset(0, 4),
+          // ── Avatar ─────────────────────────────────────────
+          Center(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 28),
+              child: GestureDetector(
+                onTap: _pickAvatar,
+                child: Stack(children: [
+                  CircleAvatar(
+                    radius: 52,
+                    backgroundColor: Colors.grey.shade200,
+                    backgroundImage: avatarUrl != null ? NetworkImage(avatarUrl) : const AssetImage('assets/image/connection.jpg') as ImageProvider,
+                    child: _isUploadingAvatar ? Container(decoration: BoxDecoration(color: Colors.black45, shape: BoxShape.circle), child: const CircularProgressIndicator(color: Colors.white, strokeWidth: 2.5)) : null,
                   ),
-                ],
+                  Positioned(
+                    bottom: 0, right: 0,
+                    child: Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(color: _maroon, shape: BoxShape.circle, border: Border.all(color: Colors.white, width: 2)),
+                      child: const Icon(Icons.camera_alt_rounded, color: Colors.white, size: 15),
+                    ),
+                  ),
+                ]),
               ),
-              child: const Icon(Icons.camera_alt_rounded, color: Colors.white, size: 20),
             ),
           ),
-        ),
-      ],
-    );
-  }
 
-  Widget _buildSectionTitle(String title) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8.0),
-      child: Align(
-        alignment: Alignment.centerLeft,
-        child: Text(
-          title,
-          style: const TextStyle(
-            color: Color(0xFF2C2C2E),
-            fontSize: 16,
-            fontWeight: FontWeight.w700,
+          // ── About you ──────────────────────────────────────
+          _header('About you'),
+          _row(icon: Icons.cake_outlined,       label: 'Age',       value: _val('age'),       onTap: () => _textSheet('Age', 'age', isNumber: true)),
+          _row(icon: Icons.work_outline_rounded, label: 'Work',      value: _val('job'),       onTap: () => _textSheet('Work', 'job', hint: 'Job title')),
+          _row(icon: Icons.school_outlined,      label: 'Education', value: _val('education'), onTap: () => _textSheet('Education', 'education', hint: 'School or college')),
+          _row(icon: Icons.waving_hand_outlined, label: 'Gender',    value: _val('gender'),    onTap: () => _optionsSheet('Gender', 'gender', ['Man', 'Woman', 'Non-binary', 'Genderqueer', 'Agender', 'Other'])),
+          _row(icon: Icons.location_on_outlined, label: 'Location',  value: _val('location'),  onTap: () => _locationSheet('Location', 'location')),
+          _row(icon: Icons.home_outlined,        label: 'Hometown',  value: _val('hometown'),  onTap: () => _locationSheet('Hometown', 'hometown'), isLast: true),
+
+          // ── Bio ────────────────────────────────────────────
+          _header('Bio'),
+          _row(icon: Icons.edit_note_rounded, label: 'About me', value: (_data['bio'] ?? '').toString().isNotEmpty ? 'Added' : 'Add', onTap: () => _textSheet('About me', 'bio', maxLines: 5, hint: 'Write a short bio...'), isLast: true),
+
+          // ── More about you ─────────────────────────────────
+          _header('More about you'),
+          _row(icon: Icons.straighten_rounded,      label: 'Height',          value: _val('height'),           onTap: () => _textSheet('Height (cm)', 'height', isNumber: true)),
+          _row(icon: Icons.fitness_center_rounded,  label: 'Exercise',        value: _val('exercise'),          onTap: () => _optionsSheet('Exercise', 'exercise', ['Active', 'Sometimes', 'Rarely', 'Never'])),
+          _row(icon: Icons.wine_bar_outlined,       label: 'Drinking',        value: _val('drinking'),          onTap: () => _optionsSheet('Drinking', 'drinking', ['Sober', 'Sober curious', "Don't drink", 'Drink socially', 'Drink often'])),
+          _row(icon: Icons.smoke_free_rounded,      label: 'Smoking',         value: _val('smoking'),           onTap: () => _optionsSheet('Smoking', 'smoking', ['Non-smoker', 'Smoker', 'Trying to quit', 'Social smoker'])),
+          _row(icon: Icons.search_rounded,          label: 'Looking for',     value: _val('relationship_type'), onTap: () => _optionsSheet('Looking for', 'relationship_type', ['Long-term', 'Something casual', 'Marriage', 'New friends', "I'm not sure yet"])),
+          _row(icon: Icons.child_friendly_outlined, label: 'Want kids',       value: _val('want_kids'),         onTap: () => _optionsSheet('Want kids', 'want_kids', ['Want kids', "Don't want kids", 'Open to kids', 'Not sure yet'])),
+          _row(icon: Icons.family_restroom_rounded, label: 'Have kids',       value: _val('have_kids'),         onTap: () => _optionsSheet('Have kids', 'have_kids', ['Yes', 'No'])),
+          _row(icon: Icons.stars_rounded,           label: 'Zodiac',          value: _val('zodiac'),            onTap: () => _optionsSheet('Zodiac', 'zodiac', ['Aries ♈', 'Taurus ♉', 'Gemini ♊', 'Cancer ♋', 'Leo ♌', 'Virgo ♍', 'Libra ♎', 'Scorpio ♏', 'Sagittarius ♐', 'Capricorn ♑', 'Aquarius ♒', 'Pisces ♓'])),
+          _row(icon: Icons.account_balance_outlined,label: 'Politics',        value: _val('politics'),          onTap: () => _optionsSheet('Politics', 'politics', ['Apolitical', 'Liberal', 'Moderate', 'Conservative', 'Other'])),
+          _row(icon: Icons.self_improvement_rounded,label: 'Religion',        value: _val('religion'),          onTap: () => _optionsSheet('Religion', 'religion', ['Agnostic', 'Atheist', 'Buddhist', 'Catholic', 'Christian', 'Hindu', 'Jewish', 'Muslim', 'Sikh', 'Spiritual', 'Other'])),
+          _row(icon: Icons.family_restroom_rounded, label: 'Family Plans',    value: _val('future_plans'),      onTap: () => _optionsSheet('Family Plans', 'future_plans', ['Want children', 'Open to children', 'Not sure yet', 'Don’t want children', 'Have & want more', 'Have & don’t want more'])),
+          _row(icon: Icons.language_rounded,        label: 'Languages',       value: (_data['languages'] is List && (_data['languages'] as List).isNotEmpty) ? '${(_data['languages'] as List).length} added' : 'Add', onTap: () => _multiOptionsSheet('Languages', 'languages', ['English', 'Hindi', 'Spanish', 'French', 'German', 'Chinese', 'Japanese', 'Arabic', 'Russian', 'Portuguese', 'Bengali', 'Punjabi']), isLast: true),
+
+          // ── Interests ──────────────────────────────────────
+          _header('Interests'),
+          _row(
+            icon: Icons.interests_outlined,
+            label: 'Pick interests',
+            value: (_data['interests'] is List && (_data['interests'] as List).isNotEmpty) ? '${(_data['interests'] as List).length} added' : 'Add',
+            onTap: () => _multiOptionsSheet('Interests', 'interests', ['Music', 'Travel', 'Art', 'Gaming', 'Fitness', 'Cooking', 'Movies', 'Nature', 'Photography', 'Dance', 'Reading', 'Pets', 'Coffee', 'Yoga', 'Swimming', 'Hiking', 'Fashion', 'Sports', 'Tech', 'Foodie']),
+            isLast: true,
           ),
-        ),
+
+          const SizedBox(height: 40),
+        ]),
       ),
     );
   }
 
-  Widget _buildLocationPickerButton() {
-    return GestureDetector(
-      onTap: _isLocationLoading ? null : _getCurrentLocation,
-      child: Container(
-        padding: const EdgeInsets.all(4),
-        decoration: BoxDecoration(
-          color: AppTheme.primaryMaroon.withOpacity(0.1),
-          shape: BoxShape.circle,
-        ),
-        child: _isLocationLoading
-            ? const SizedBox(
-                width: 16,
-                height: 16,
-                child: CircularProgressIndicator(strokeWidth: 2, color: AppTheme.primaryMaroon),
-              )
-            : const Icon(Icons.my_location_rounded, color: AppTheme.primaryMaroon, size: 16),
-      ),
-    );
-  }
-
-  Widget _buildTextField(TextEditingController controller, String hint, {int maxLines = 1, TextInputType keyboardType = TextInputType.text}) {
-    return TextField(
-      controller: controller,
-      maxLines: maxLines,
-      keyboardType: keyboardType,
-      decoration: InputDecoration(
-        hintText: hint,
-        hintStyle: const TextStyle(color: Color(0xFF8E8E93), fontSize: 15),
-        filled: true,
-        fillColor: Colors.white,
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
-          borderSide: BorderSide.none,
-        ),
-        contentPadding: const EdgeInsets.all(16),
-      ),
-      style: const TextStyle(
-        color: Color(0xFF2C2C2E),
-        fontWeight: FontWeight.w600,
-        fontSize: 15,
-      ),
-    );
-  }
-
-  Widget _buildTagEditor() {
+  // ── Row widget ───────────────────────────────────────────────
+  Widget _row({required IconData icon, required String label, required String value, required VoidCallback onTap, bool isLast = false}) {
+    final isEmpty = value == 'Add';
     return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
+        border: !isLast ? const Border(bottom: BorderSide(color: Color(0xFFF0F0F0), width: 1)) : null,
       ),
-      child: Wrap(
-        spacing: 8,
-        runSpacing: 8,
-        children: [
-          ..._interests.map((interest) => _buildExistingTag(interest)),
-          GestureDetector(
-            onTap: _showAddTagDialog,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              decoration: BoxDecoration(
-                color: const Color(0xFFF7F7F8),
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: const Color(0xFFEBEBEB)),
-              ),
-              child: const Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.add_rounded, color: Color(0xFF8E8E93), size: 16),
-                  SizedBox(width: 4),
-                  Text(
-                    'Add',
-                    style: TextStyle(color: Color(0xFF8E8E93), fontSize: 13, fontWeight: FontWeight.w600),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildExistingTag(String label) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        color: AppTheme.primaryMaroon.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            label,
-            style: TextStyle(color: AppTheme.primaryMaroon, fontSize: 13, fontWeight: FontWeight.w600),
-          ),
-          const SizedBox(width: 6),
-          GestureDetector(
-            onTap: () {
-              setState(() {
-                _interests.remove(label);
-              });
-            },
-            child: Icon(Icons.close_rounded, color: AppTheme.primaryMaroon, size: 14),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSaveButton() {
-    return SizedBox(
-      width: double.infinity,
-      child: ElevatedButton(
-        onPressed: _isLoading ? null : _saveChanges,
-        style: ElevatedButton.styleFrom(
-          backgroundColor: AppTheme.primaryMaroon,
-          padding: const EdgeInsets.symmetric(vertical: 18),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-          elevation: 4,
-          shadowColor: AppTheme.primaryMaroon.withOpacity(0.3),
+      child: ListTile(
+        onTap: onTap,
+        contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
+        leading: Container(
+          width: 38, height: 38,
+          decoration: BoxDecoration(color: const Color(0xFFF5F5F5), borderRadius: BorderRadius.circular(10)),
+          child: Icon(icon, size: 18, color: const Color(0xFF666666)),
         ),
-        child: _isLoading
-            ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-            : const Text('Save Changes', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+        title: Text(label, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500, color: Color(0xFF1A1A1A))),
+        trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+          Text(
+            value.length > 22 ? '${value.substring(0, 22)}...' : value,
+            style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: isEmpty ? const Color(0xFFB0B0B0) : const Color(0xFF555555)),
+          ),
+          const SizedBox(width: 4),
+          const Icon(Icons.chevron_right_rounded, color: Color(0xFFCCCCCC), size: 20),
+        ]),
       ),
+    );
+  }
+
+  Widget _header(String title) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 24, 20, 8),
+      child: Text(title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: Color(0xFF1A1A1A))),
     );
   }
 }

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/theme.dart';
 import '../../core/ui_helpers.dart';
 import '../../core/auth_service.dart';
@@ -42,6 +43,71 @@ class _SettingsScreenState extends State<SettingsScreen> {
         _emailUpdates = metadata['pref_email_updates'] ?? false;
         _newMatches = metadata['pref_new_matches'] ?? true;
       });
+    }
+  }
+
+  Future<void> _deleteAccount() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Text(
+          'Delete Account?',
+          style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF2C2C2E)),
+        ),
+        content: const Text(
+          'This action is permanent and cannot be undone. Your profile, matches, and all data will be lost forever.',
+          style: TextStyle(color: Color(0xFF6B6B6B), height: 1.5),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel', style: TextStyle(color: Color(0xFF6B6B6B))),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text(
+              'Delete Forever',
+              style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    if (!mounted) return;
+    setState(() => _isLoading = true);
+
+    try {
+      // 1. Delete profile row from database
+      await Supabase.instance.client
+          .from('profiles')
+          .delete()
+          .eq('id', _authService.currentUser!.id);
+
+      // 2. Sign out (Supabase free tier doesn't allow client-side auth.users deletion,
+      //    but profile data is wiped. Use admin RPC if available.)
+      try {
+        await Supabase.instance.client.rpc('delete_user_account');
+      } catch (_) {
+        // RPC may not exist yet — profile is already deleted above
+      }
+
+      await _authService.signOut();
+    } catch (e) {
+      debugPrint('Delete account error: $e');
+      // Still sign out to remove local session
+      try { await _authService.signOut(); } catch (_) {}
+    }
+
+    // Always redirect to login after attempt
+    if (mounted) {
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => const LoginScreen()),
+        (route) => false,
+      );
     }
   }
 
@@ -163,7 +229,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               children: [
                 _buildLinkItem('Personal Information'),
                 _buildLinkItem('Subscription'),
-                _buildLinkItem('Delete Account', isDestructive: true, isLast: true),
+                _buildDeleteAccountButton(),
               ],
             ),
             const SizedBox(height: 48),
@@ -296,6 +362,45 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ],
         ),
         if (!isLast) const SizedBox(height: 24),
+      ],
+    );
+  }
+
+  Widget _buildDeleteAccountButton() {
+    return Column(
+      children: [
+        const SizedBox(height: 24),
+        InkWell(
+          onTap: _deleteAccount,
+          borderRadius: BorderRadius.circular(12),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              _isLoading
+                  ? const SizedBox(
+                      height: 20,
+                      width: 20,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Color(0xFF9D4C5E),
+                      ),
+                    )
+                  : const Text(
+                      'Delete Account',
+                      style: TextStyle(
+                        color: Color(0xFF9D4C5E),
+                        fontWeight: FontWeight.w600,
+                        fontSize: 17,
+                      ),
+                    ),
+              const Icon(
+                Icons.delete_outline_rounded,
+                color: Color(0xFF9D4C5E),
+                size: 18,
+              ),
+            ],
+          ),
+        ),
       ],
     );
   }

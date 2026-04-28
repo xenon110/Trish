@@ -10,6 +10,8 @@ import 'package:trish_app/screens/home/interaction_chat_screen.dart';
 import 'package:trish_app/screens/home/blind_mode_screen.dart';
 import 'package:trish_app/models/user_profile.dart';
 import 'package:intl/intl.dart';
+import 'package:trish_app/screens/home/notifications_screen.dart';
+import '../../core/auth_service.dart';
 
 class UpdatesScreen extends StatefulWidget {
   const UpdatesScreen({super.key});
@@ -22,6 +24,8 @@ class _UpdatesScreenState extends State<UpdatesScreen> {
   final ChatService _chatService = ChatService();
   bool _isLoading = true;
   List<ChatMatch> _matches = [];
+  String _selectedFilter = 'All';
+  int _unreadNotificationCount = 0;
 
   @override
   void initState() {
@@ -33,8 +37,10 @@ class _UpdatesScreenState extends State<UpdatesScreen> {
     setState(() => _isLoading = true);
     try {
       final matches = await _chatService.getMatches();
+      final unreadNotifs = await AuthService().getUnreadNotificationCount();
       setState(() {
         _matches = matches;
+        _unreadNotificationCount = unreadNotifs;
         _isLoading = false;
       });
     } catch (e) {
@@ -82,9 +88,26 @@ class _UpdatesScreenState extends State<UpdatesScreen> {
             const SizedBox(height: 24),
             _buildFilters(context),
             Expanded(
-              child: AnimatedSwitcher(
-                duration: const Duration(milliseconds: 300),
-                child: _isLoading ? _buildLoadingState() : _buildContent(),
+              child: StreamBuilder<List<ChatMatch>>(
+                stream: _chatService.getMatchesStream(),
+                builder: (context, snapshot) {
+                  if (snapshot.connectionState == ConnectionState.waiting && _matches.isEmpty) {
+                    return _buildLoadingState();
+                  }
+                  
+                  if (snapshot.hasError) {
+                    return Center(child: Text('Error: ${snapshot.error}'));
+                  }
+
+                  if (snapshot.hasData) {
+                    _matches = snapshot.data!;
+                  }
+
+                  return AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 300),
+                    child: _matches.isEmpty ? _buildEmptyState() : _buildContent(),
+                  );
+                },
               ),
             ),
           ],
@@ -100,96 +123,167 @@ class _UpdatesScreenState extends State<UpdatesScreen> {
     );
   }
 
-  Widget _buildContent() {
-    if (_matches.isEmpty) {
-      return _buildEmptyState();
+  /// Returns matches filtered by the selected chip.
+  /// 'Unread'  = matches that have unread messages.
+  /// 'All'     = every match.
+  List<ChatMatch> get _filteredMatches {
+    if (_selectedFilter == 'Unread') {
+      return _matches.where((m) => m.unreadCount > 0).toList();
     }
+    if (_selectedFilter == 'Blind') {
+      return _matches.where((m) => m.isBlind && !m.isUnlocked).toList();
+    }
+    // For 'All', we can exclude blind matches if we want, or keep them.
+    // The user said "where the separate chat will be", so maybe exclude from All?
+    // Let's exclude them from All to keep them separate.
+    if (_selectedFilter == 'All') {
+      return _matches.where((m) => !m.isBlind || m.isUnlocked).toList();
+    }
+    return _matches;
+  }
+
+  Widget _buildContent() {
+    final filtered = _filteredMatches;
 
     return RefreshIndicator(
       onRefresh: _loadMatches,
       color: AppTheme.primaryMaroon,
       child: CustomScrollView(
         slivers: [
-          // 1. New Matches Section (Horizontal)
-          SliverToBoxAdapter(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 24.0, vertical: 8.0),
-                  child: Text(
-                    'New Matches',
-                    style: TextStyle(
-                      color: Color(0xFF2C2C2E),
-                      fontSize: 18,
-                      fontWeight: FontWeight.w800,
+          // --- New Matches row (only visible on 'All') ---
+          if (_selectedFilter == 'All')
+            SliverToBoxAdapter(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 24.0, vertical: 8.0),
+                    child: Text(
+                      'New Matches',
+                      style: TextStyle(
+                        color: Color(0xFF2C2C2E),
+                        fontSize: 18,
+                        fontWeight: FontWeight.w800,
+                      ),
                     ),
                   ),
-                ),
-                SizedBox(
-                  height: 120,
-                  child: ListView.builder(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    scrollDirection: Axis.horizontal,
-                    itemCount: _matches.length,
-                    itemBuilder: (context, index) {
-                      final match = _matches[index];
-                      return _buildNewMatchCircle(match);
-                    },
-                  ),
-                ),
-                const SizedBox(height: 16),
-                const Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 24.0),
-                  child: Text(
-                    'Messages',
-                    style: TextStyle(
-                      color: Color(0xFF2C2C2E),
-                      fontSize: 18,
-                      fontWeight: FontWeight.w800,
+                  SizedBox(
+                    height: 120,
+                    child: ListView.builder(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      scrollDirection: Axis.horizontal,
+                      itemCount: _matches.length,
+                      itemBuilder: (context, index) {
+                        final match = _matches[index];
+                        return _buildNewMatchCircle(match);
+                      },
                     ),
                   ),
-                ),
-              ],
+                  const SizedBox(height: 16),
+                ],
+              ),
             ),
-          ),
+            
+          // --- Start New Blind Match (only visible on 'Blind') ---
+          if (_selectedFilter == 'Blind')
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 8.0),
+                child: InkWell(
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (context) => const BlindModeScreen()),
+                    ).then((_) => _loadMatches());
+                  },
+                  borderRadius: BorderRadius.circular(16),
+                  child: Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF0F0C29),
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: const Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.search, color: Colors.white, size: 20),
+                        SizedBox(width: 8),
+                        Text('Find New Blind Match', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15)),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
 
-          // 2. Messages Section (Vertical)
-          SliverPadding(
-            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-            sliver: SliverList(
-              delegate: SliverChildBuilderDelegate(
-                (context, index) {
-                  final match = _matches[index];
-                  final isBlindMatch = match.isBlind && !match.isUnlocked;
-                  
-                  return _buildUpdateItem(
-                    context,
-                    title: isBlindMatch ? 'Blind Match' : match.otherUser.fullName,
-                    subtitle: match.lastMessage ?? 'You matched! Say hi to start the conversation.',
-                    time: DateFormat.jm().format(match.createdAt),
-                    imageUrl: isBlindMatch ? null : match.otherUser.avatarUrl,
-                    icon: isBlindMatch ? Icons.visibility_off : null,
-                    isOnline: match.otherUser.isOnline,
-                    onTap: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) => isBlindMatch
-                              ? BlindModeScreen(matchId: match.id, targetProfile: match.otherUser)
-                              : InteractionChatScreen(
-                                  matchId: match.id,
-                                  targetProfile: match.otherUser,
-                                ),
-                        ),
-                      );
-                    },
-                  );
-                },
-                childCount: _matches.length,
+          // --- Section label ---
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 4.0),
+              child: Text(
+                _selectedFilter == 'Unread' ? 'Waiting for a reply' : 'Messages',
+                style: const TextStyle(
+                  color: Color(0xFF2C2C2E),
+                  fontSize: 18,
+                  fontWeight: FontWeight.w800,
+                ),
               ),
             ),
           ),
+
+          // --- Empty-filter state ---
+          if (filtered.isEmpty)
+            const SliverFillRemaining(
+              child: Center(
+                child: Text(
+                  'No unread matches right now 🎉',
+                  style: TextStyle(color: Color(0xFF8E8E93), fontSize: 15),
+                ),
+              ),
+            )
+          else
+            // --- Conversation list ---
+            SliverPadding(
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+              sliver: SliverList(
+                delegate: SliverChildBuilderDelegate(
+                  (context, index) {
+                    final match = filtered[index];
+                    final isBlindMatch = match.isBlind && !match.isUnlocked;
+                    final displayTime = DateFormat.jm().format(
+                        match.lastMessageAt ?? match.createdAt);
+
+                    return _buildUpdateItem(
+                      context,
+                      title: isBlindMatch ? 'Blind Match' : match.otherUser.fullName,
+                      subtitle: match.lastMessage ?? 'You matched! Say hi 👋',
+                      time: displayTime,
+                      imageUrl: isBlindMatch ? null : match.otherUser.avatarUrl,
+                      icon: isBlindMatch ? Icons.visibility_off : null,
+                      isOnline: match.otherUser.isOnline,
+                      isUnread: match.unreadCount > 0,
+                      unreadCount: match.unreadCount,
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => isBlindMatch
+                                ? BlindModeScreen(
+                                    matchId: match.id,
+                                    targetProfile: match.otherUser)
+                                : InteractionChatScreen(
+                                    matchId: match.id,
+                                    targetProfile: match.otherUser,
+                                  ),
+                          ),
+                        ).then((_) => _loadMatches());
+                      },
+                    );
+                  },
+                  childCount: filtered.length,
+                ),
+              ),
+            ),
         ],
       ),
     );
@@ -318,23 +412,28 @@ class _UpdatesScreenState extends State<UpdatesScreen> {
             constraints: const BoxConstraints(),
           ),
           IconButton(
-            onPressed: () => UIHelpers.showFeatureComingSoon(context),
+            onPressed: () async {
+              await Navigator.push(context, MaterialPageRoute(builder: (context) => const NotificationsScreen()));
+              _loadMatches(); // Refresh count after coming back
+            },
             icon: Stack(
               children: [
                 Icon(Icons.notifications, color: AppTheme.primaryMaroon.withOpacity(0.85), size: 28),
-                Positioned(
-                  right: 2,
-                  top: 2,
-                  child: Container(
-                    width: 10,
-                    height: 10,
-                    decoration: BoxDecoration(
-                      color: Colors.red.shade400,
-                      shape: BoxShape.circle,
-                      border: Border.all(color: const Color(0xFFFCFAFA), width: 2),
+                if (_unreadNotificationCount > 0)
+                  Positioned(
+                    right: 0,
+                    top: 0,
+                    child: Container(
+                      padding: const EdgeInsets.all(4),
+                      decoration: const BoxDecoration(color: Colors.red, shape: BoxShape.circle),
+                      constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
+                      child: Text(
+                        '$_unreadNotificationCount',
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+                      ),
                     ),
-                  ),
-                )
+                  )
               ],
             ),
           ),
@@ -349,32 +448,64 @@ class _UpdatesScreenState extends State<UpdatesScreen> {
       padding: const EdgeInsets.symmetric(horizontal: 24.0),
       child: Row(
         children: [
-          _buildFilterChip(context, 'All', true),
+          _buildFilterChip(context, 'All'),
           const SizedBox(width: 12),
-          _buildFilterChip(context, 'Matches', false),
+          _buildFilterChip(context, 'Unread'),
           const SizedBox(width: 12),
-          _buildFilterChip(context, 'Messages', false),
+          _buildFilterChip(context, 'Blind'),
         ],
       ),
     );
   }
 
-  Widget _buildFilterChip(BuildContext context, String label, bool isSelected) {
+  Widget _buildFilterChip(BuildContext context, String label) {
+    final isSelected = _selectedFilter == label;
+    // Show badge count on 'Unread' chip
+    final unreadTotal = label == 'Unread'
+        ? _matches.where((m) => m.hasNoMessages).length
+        : 0;
+
     return GestureDetector(
-      onTap: () => UIHelpers.showSnackBar(context, 'Filter applied: $label'),
-      child: Container(
+      onTap: () => setState(() => _selectedFilter = label),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
         padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
         decoration: BoxDecoration(
           color: isSelected ? const Color(0xFF2C2C2E) : const Color(0xFFF2F2F7),
           borderRadius: BorderRadius.circular(24),
         ),
-        child: Text(
-          label,
-          style: TextStyle(
-            color: isSelected ? Colors.white : const Color(0xFF2C2C2E),
-            fontWeight: FontWeight.w600,
-            fontSize: 15,
-          ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              label,
+              style: TextStyle(
+                color: isSelected ? Colors.white : const Color(0xFF2C2C2E),
+                fontWeight: FontWeight.w600,
+                fontSize: 15,
+              ),
+            ),
+            if (unreadTotal > 0) ...[
+              const SizedBox(width: 6),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                decoration: BoxDecoration(
+                  color: isSelected
+                      ? const Color(0xFFE56A7C)
+                      : AppTheme.primaryMaroon,
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Text(
+                  '$unreadTotal',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
+          ],
         ),
       ),
     );
@@ -389,6 +520,7 @@ class _UpdatesScreenState extends State<UpdatesScreen> {
     IconData? icon,
     Color? iconBg,
     bool isUnread = false,
+    int unreadCount = 0,
     bool isOnline = false,
     Color? indicatorColor,
     required VoidCallback onTap,

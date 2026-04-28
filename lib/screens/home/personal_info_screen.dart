@@ -19,7 +19,7 @@ class _PersonalInfoScreenState extends State<PersonalInfoScreen> {
   }
 
   String get _userPhone {
-    return _authService.currentUser?.phone ?? 'Not provided';
+    return _authService.currentUser?.userMetadata?['phone_number'] ?? 'Not provided';
   }
 
   Future<void> _handlePasswordReset() async {

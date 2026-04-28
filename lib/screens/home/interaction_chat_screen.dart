@@ -8,6 +8,7 @@ import '../../models/chat_message.dart';
 import '../../models/user_profile.dart';
 import 'package:intl/intl.dart';
 import 'package:trish_app/screens/home/main_navigation_screen.dart';
+import '../../core/auth_service.dart';
 
 class InteractionChatScreen extends StatefulWidget {
   final String matchId;
@@ -27,6 +28,16 @@ class _InteractionChatScreenState extends State<InteractionChatScreen> {
   final TextEditingController _messageController = TextEditingController();
   final ChatService _chatService = ChatService();
   final ScrollController _scrollController = ScrollController();
+
+  @override
+  void initState() {
+    super.initState();
+    // Mark messages as read when opening the chat, only if user has read receipts enabled
+    final showReadReceipts = AuthService().currentUser?.userMetadata?['pref_read_receipts'] ?? true;
+    if (showReadReceipts) {
+      _chatService.markMessagesAsRead(widget.matchId);
+    }
+  }
 
   final List<String> _prompts = [
     'Wear good boots! 🥾',

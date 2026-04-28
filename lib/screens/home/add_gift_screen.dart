@@ -5,6 +5,7 @@ import '../../core/gift_service.dart';
 import 'gift_history_screen.dart';
 import '../../core/auth_service.dart';
 import '../../models/user_profile.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 class AddGiftScreen extends StatefulWidget {
   const AddGiftScreen({super.key});
@@ -452,31 +453,57 @@ class _AddGiftScreenState extends State<AddGiftScreen> {
     );
   }
 
-  void _processGifting() {
+  Future<void> _processGifting() async {
     final gift = _availableGifts[_selectedGiftIndex];
-    final tx = GiftTransaction(
-      id: DateTime.now().millisecondsSinceEpoch.toString(),
-      icon: gift['emoji'],
-      title: 'Sent ${gift['name']} to ${_selectedUser!.fullName}',
-      amount: gift['price'],
-      type: 'Sent',
-      timestamp: 'Just now',
-      userName: _selectedUser!.fullName,
-      userImage: _selectedUser!.avatarUrl ?? AppConstants.defaultAvatar1,
-      message: _messageController.text,
-    );
+    final currentUserId = Supabase.instance.client.auth.currentUser?.id;
+    
+    if (currentUserId == null || _selectedUser == null) return;
 
-    GiftService().addTransaction(tx);
+    setState(() => _isUsersLoading = true); // Using this as a general loading state for simplicity
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: const Text('Gift Sent Successfully 🎉', style: TextStyle(fontWeight: FontWeight.bold)),
-        backgroundColor: const Color(0xFF34C759),
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-      ),
-    );
+    try {
+      // 1. Create the gift record in Supabase
+      await Supabase.instance.client.from('physical_gifts').insert({
+        'sender_id': currentUserId,
+        'recipient_id': _selectedUser!.id,
+        'gift_item': gift['name'],
+        'price': gift['price'],
+        'personal_message': _messageController.text,
+        'status': 'Awaiting Acceptance',
+      });
 
-    Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => const GiftHistoryScreen()));
+      // 2. Add to local mock service for backwards compatibility if needed
+      final tx = GiftTransaction(
+        id: DateTime.now().millisecondsSinceEpoch.toString(),
+        icon: gift['emoji'],
+        title: 'Sent ${gift['name']} to ${_selectedUser!.fullName}',
+        amount: gift['price'],
+        type: 'Sent',
+        timestamp: 'Just now',
+        userName: _selectedUser!.fullName,
+        userImage: _selectedUser!.avatarUrl ?? AppConstants.defaultAvatar1,
+        message: _messageController.text,
+      );
+      GiftService().addTransaction(tx);
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('Gift Request Sent! Waiting for Acceptance 🎉', style: TextStyle(fontWeight: FontWeight.bold)),
+            backgroundColor: const Color(0xFF34C759),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          ),
+        );
+        Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => const GiftHistoryScreen()));
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isUsersLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to send gift: $e'), backgroundColor: Colors.red),
+        );
+      }
+    }
   }
 }

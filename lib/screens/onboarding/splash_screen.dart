@@ -4,6 +4,7 @@ import 'onboarding_screen.dart';
 import '../../core/auth_service.dart';
 import '../home/main_navigation_screen.dart';
 import '../auth/verify_email_screen.dart';
+import '../auth/profile_onboarding_screen.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -40,6 +41,10 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
 
     final user = _authService.currentUser;
     
+    // Small delay to allow main.dart's auth listener to catch recovery events
+    await Future.delayed(const Duration(milliseconds: 500));
+    if (!mounted || AuthService.isRecoveryMode) return;
+
     if (user == null) {
       // User not logged in
       Navigator.of(context).pushReplacement(
@@ -49,16 +54,19 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
       // User is logged in, check verification
       await _authService.reloadUser();
       final freshUser = _authService.currentUser;
+      final userProfile = await _authService.getCurrentProfile();
 
-      if (freshUser?.emailConfirmedAt == null) {
-        // User logged in but email not verified
+      if (freshUser?.emailConfirmedAt == null || userProfile?.birthday == null) {
+        // User not verified OR verified but just starting (no birthday yet)
+        // We send them to VerifyEmailScreen so they see the "Email Verified" popup 
+        // before moving to Onboarding.
         Navigator.of(context).pushReplacement(
           MaterialPageRoute(
             builder: (context) => VerifyEmailScreen(email: freshUser?.email ?? ''),
           ),
         );
       } else {
-        // Logged in and verified
+        // Logged in, verified, and profile complete
         Navigator.of(context).pushReplacement(
           MaterialPageRoute(builder: (context) => const MainNavigationScreen()),
         );

@@ -42,10 +42,13 @@ class _BlindModeScreenState extends State<BlindModeScreen> with TickerProviderSt
   double _connectionProgress = 0.0;
   bool _isUnlocking = false;
   bool _hasUnlocked = false;
+  bool _showMatchPopup = false;
   
   final int _requiredMessages = 10;
   
   late List<String> _insights = ["Tap to feel the vibe"];
+
+  RealtimeChannel? _matchChannel;
 
   @override
   void initState() {
@@ -68,12 +71,54 @@ class _BlindModeScreenState extends State<BlindModeScreen> with TickerProviderSt
     _matchId = widget.matchId;
     _targetProfile = widget.targetProfile;
 
+    if (_matchId != null) {
+      _chatService.markMessagesAsRead(_matchId!);
+      _setupMatchListener();
+    }
+
     if (_matchId == null || _targetProfile == null) {
       _loadBlindMatch();
     } else {
       _initInsights();
       _isLoading = false;
     }
+  }
+
+  bool _isFullyUnlocked = false;
+
+  void _setupMatchListener() {
+    if (_matchId == null) return;
+    _matchChannel = Supabase.instance.client
+        .channel('public:matches:$_matchId')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.update,
+          schema: 'public',
+          table: 'matches',
+          filter: PostgresChangeFilter(type: PostgresChangeFilterType.eq, column: 'id', value: _matchId!),
+          callback: (payload) {
+            final updatedMatch = payload.newRecord;
+            if (updatedMatch['is_unlocked'] == true) {
+              if (mounted) {
+                setState(() {
+                  _isFullyUnlocked = true;
+                  _hasUnlocked = true;
+                });
+                UIHelpers.showSnackBar(context, 'Identity Revealed! 🎉');
+              }
+            } else if (updatedMatch['user1_unlocked'] == true || updatedMatch['user2_unlocked'] == true) {
+              // The other user unlocked
+              if (mounted) {
+                 final currentUserId = Supabase.instance.client.auth.currentUser?.id;
+                 final isUser1 = updatedMatch['user1_id'] == currentUserId;
+                 final otherUnlocked = isUser1 ? updatedMatch['user2_unlocked'] == true : updatedMatch['user1_unlocked'] == true;
+                 if (otherUnlocked && !_hasUnlocked) {
+                   UIHelpers.showSnackBar(context, 'The other user wants to reveal identity! 👀');
+                 }
+              }
+            }
+          },
+        )
+        .subscribe();
   }
 
   void _initInsights() {
@@ -88,50 +133,77 @@ class _BlindModeScreenState extends State<BlindModeScreen> with TickerProviderSt
 
   Future<void> _loadBlindMatch() async {
     setState(() => _isLoading = true);
-    
+    final currentUserId = Supabase.instance.client.auth.currentUser?.id;
+    if (currentUserId == null) return;
+
     try {
       // 1. Try to find an existing active blind match
       final matches = await _chatService.getMatches();
       final activeBlindMatches = matches.where((m) => m.isBlind && !m.isUnlocked).toList();
       
       if (activeBlindMatches.isNotEmpty) {
+        final activeMatch = activeBlindMatches.first;
         setState(() {
-          _matchId = activeBlindMatches.first.id;
-          _targetProfile = activeBlindMatches.first.otherUser;
-          _hasUnlocked = activeBlindMatches.first.currentUserUnlocked;
+          _matchId = activeMatch.id;
+          _targetProfile = activeMatch.otherUser;
+          _hasUnlocked = activeMatch.currentUserUnlocked;
+          _isFullyUnlocked = activeMatch.isUnlocked;
           _initInsights();
+          if (activeMatch.hasNoMessages) {
+             _showMatchPopup = true;
+          }
           _isLoading = false;
         });
+        _setupMatchListener();
         return;
       }
 
-      // 2. Fetch a new profile using DiscoveryService
-      final discoveryService = DiscoveryService();
-      final profiles = await discoveryService.getBlindDiscoveryProfiles();
-      
-      if (profiles.isNotEmpty) {
-        final newTarget = profiles.first;
-        final currentUserId = Supabase.instance.client.auth.currentUser?.id;
-        
-        if (currentUserId != null) {
-          final ids = [currentUserId, newTarget.id]..sort();
-          final response = await Supabase.instance.client.from('matches').upsert({
-            'user1_id': ids[0],
-            'user2_id': ids[1],
-            'is_blind': true,
-          }).select('id').single();
-          
-          if (mounted) {
-            setState(() {
-              _matchId = response['id'];
-              _targetProfile = newTarget;
-              _initInsights();
-              _isLoading = false;
-            });
-          }
-          return;
+      // 2. JOIN THE WAITING POOL
+      await Supabase.instance.client.from('blind_pool').upsert({'user_id': currentUserId});
+
+      // 3. SEARCH THE POOL FOR SOMEONE ELSE
+      final poolResponse = await Supabase.instance.client
+          .from('blind_pool')
+          .select('user_id, profiles(*)')
+          .neq('user_id', currentUserId)
+          .order('created_at', ascending: true)
+          .limit(1);
+
+      if ((poolResponse as List).isNotEmpty) {
+        final otherUserData = poolResponse.first;
+        final otherUserId = otherUserData['user_id'];
+        final otherProfile = UserProfile.fromJson(otherUserData['profiles']);
+
+        // Found a partner! Create the match.
+        final ids = [currentUserId, otherUserId]..sort();
+        final matchResponse = await Supabase.instance.client.from('matches').upsert({
+          'user1_id': ids[0],
+          'user2_id': ids[1],
+          'is_blind': true,
+          'is_unlocked': false,
+          'user1_unlocked': false,
+          'user2_unlocked': false,
+        }, onConflict: 'user1_id,user2_id').select('id').single();
+
+        // REMOVE BOTH FROM POOL
+        await Supabase.instance.client.from('blind_pool').delete().inFilter('user_id', [currentUserId, otherUserId]);
+
+        if (mounted) {
+          setState(() {
+            _matchId = matchResponse['id'];
+            _targetProfile = otherProfile;
+            _initInsights();
+            _showMatchPopup = true;
+            _isLoading = false;
+          });
+          _setupMatchListener();
         }
+        return;
       }
+
+      // 4. If no one found, stay on Radar and listen for incoming matches
+      _setupIncomingMatchListener();
+      
     } catch (e) {
       print('Error loading blind match: $e');
     }
@@ -141,8 +213,38 @@ class _BlindModeScreenState extends State<BlindModeScreen> with TickerProviderSt
     }
   }
 
+  void _setupIncomingMatchListener() {
+    final currentUserId = Supabase.instance.client.auth.currentUser?.id;
+    if (currentUserId == null) return;
+
+    // Listen for when our own row gets DELETED from blind_pool
+    // This means someone matched us and removed us from the waiting room!
+    Supabase.instance.client
+        .channel('blind_pool:waiting:$currentUserId')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.delete,
+          schema: 'public',
+          table: 'blind_pool',
+          callback: (payload) {
+            final deletedRow = payload.oldRecord;
+            // If OUR user_id row was deleted, it means we got matched!
+            if (deletedRow['user_id'] == currentUserId && _matchId == null) {
+              // Reload to find the newly created match and show the popup
+              _loadBlindMatch();
+            }
+          },
+        )
+        .subscribe();
+  }
+
   @override
   void dispose() {
+    // Remove from waiting pool when leaving
+    final currentUserId = Supabase.instance.client.auth.currentUser?.id;
+    if (currentUserId != null) {
+      Supabase.instance.client.from('blind_pool').delete().eq('user_id', currentUserId).then((_) {});
+    }
+
     _orbController.dispose();
     _radarRotationController.dispose();
     _radarPulseController.dispose();
@@ -167,26 +269,25 @@ class _BlindModeScreenState extends State<BlindModeScreen> with TickerProviderSt
   }
 
   Future<void> _unlockIdentity() async {
-    if (_connectionProgress < 1.0 || _matchId == null || _targetProfile == null) return;
+    if (_matchId == null || _targetProfile == null) return;
     
     setState(() => _isUnlocking = true);
     try {
       final isFullyUnlocked = await _chatService.unlockMatch(_matchId!);
       if (mounted) {
         if (isFullyUnlocked) {
-          Navigator.of(context).pushReplacement(
-            MaterialPageRoute(
-              builder: (context) => InteractionChatScreen(
-                matchId: _matchId!,
-                targetProfile: _targetProfile!,
-              ),
-            ),
-          );
+          setState(() {
+            _isFullyUnlocked = true;
+            _hasUnlocked = true;
+            _isUnlocking = false;
+          });
+          UIHelpers.showSnackBar(context, 'Identity Revealed! 🎉');
         } else {
           setState(() {
             _hasUnlocked = true;
             _isUnlocking = false;
           });
+          UIHelpers.showSnackBar(context, 'Waiting for the other user to reveal...');
         }
       }
     } catch (e) {
@@ -208,40 +309,57 @@ class _BlindModeScreenState extends State<BlindModeScreen> with TickerProviderSt
       return _buildPremiumEmptyState();
     }
 
+    if (_showMatchPopup) {
+      return Scaffold(
+        backgroundColor: const Color(0xFF0F0C29),
+        body: SafeArea(
+          child: _buildMatchPopup(),
+        ),
+      );
+    }
+
     return Scaffold(
-      backgroundColor: const Color(0xFFFCFAFA),
+      backgroundColor: const Color(0xFF0F0C29),
       body: SafeArea(
         child: StreamBuilder<List<ChatMessage>>(
           stream: _chatService.getMessagesStream(_matchId!),
           builder: (context, snapshot) {
             final messages = snapshot.data ?? [];
-            _connectionProgress = (messages.length / _requiredMessages).clamp(0.0, 1.0);
+            
+            // Calculate total words
+            int totalWords = 0;
+            for (var msg in messages) {
+              totalWords += msg.content.split(RegExp(r'\s+')).where((s) => s.isNotEmpty).length;
+            }
+            final int wordsRemaining = (800 - totalWords).clamp(0, 800);
+            
+            // Simulate AI Score (starts at 50, goes up based on chat length)
+            int aiScore = 50 + (totalWords / 10).floor().clamp(0, 48);
             
             return Column(
               children: [
-                _buildHeader(),
+                _buildDarkHeader(),
+                _buildBlurredProfileHeader(aiScore),
+                _buildWordLimitIndicator(wordsRemaining),
                 Expanded(
-                  child: SingleChildScrollView(
-                    padding: const EdgeInsets.symmetric(horizontal: 24.0),
+                  child: Container(
+                    decoration: const BoxDecoration(
+                      color: Color(0xFFFCFAFA),
+                      borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
+                    ),
                     child: Column(
                       children: [
-                        const SizedBox(height: 32),
-                        _buildVibeSection(),
-                        const SizedBox(height: 40),
-                        _buildPersonalityTraits(),
-                        const SizedBox(height: 48),
-                        if (messages.isNotEmpty) _buildRecentMessages(messages)
-                        else _buildPromptSection(),
-                        const SizedBox(height: 32),
-                        _buildConnectionMeter(),
-                        const SizedBox(height: 40),
-                        _buildUnlockButton(),
-                        const SizedBox(height: 32),
+                        Expanded(
+                          child: messages.isNotEmpty 
+                            ? _buildFullChatList(messages) 
+                            : _buildPromptSection(),
+                        ),
+                        _buildActionButtons(wordsRemaining == 0),
                       ],
                     ),
                   ),
                 ),
-                _buildChatInputArea(),
+                _buildChatInputArea(wordsRemaining == 0),
               ],
             );
           }
@@ -250,14 +368,14 @@ class _BlindModeScreenState extends State<BlindModeScreen> with TickerProviderSt
     );
   }
 
-  Widget _buildHeader() {
+  Widget _buildDarkHeader() {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 16.0),
+      padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 12.0),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           IconButton(
-            icon: Icon(Icons.arrow_back_ios_new, color: AppTheme.primaryMaroon),
+            icon: const Icon(Icons.close, color: Colors.white70),
             onPressed: () {
               if (Navigator.of(context).canPop()) {
                 Navigator.of(context).pop();
@@ -268,111 +386,117 @@ class _BlindModeScreenState extends State<BlindModeScreen> with TickerProviderSt
             padding: EdgeInsets.zero,
             constraints: const BoxConstraints(),
           ),
-          Icon(Icons.notifications, color: AppTheme.primaryMaroon.withOpacity(0.85), size: 28),
+          const Text(
+            'Blind Chat',
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18),
+          ),
+          IconButton(
+            icon: const Icon(Icons.more_vert, color: Colors.white70),
+            onPressed: () {},
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(),
+          ),
         ],
       ),
     );
   }
 
-  Widget _buildVibeSection() {
-    return Column(
-      children: [
-        GestureDetector(
-          onTap: _onOrbTap,
-          child: AnimatedBuilder(
-            animation: _orbController,
-            builder: (context, child) {
-              return Container(
-                width: 200,
-                height: 200,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  gradient: RadialGradient(
-                    colors: [
-                      Color.lerp(const Color(0xFFFFB5B5), const Color(0xFFB5C6FF), _orbController.value)!,
-                      Color.lerp(const Color(0xFF9D4C5E), const Color(0xFF4C6B9D), _orbController.value)!.withOpacity(0.6),
-                      Colors.transparent,
-                    ],
-                    stops: const [0.2, 0.6, 1.0],
-                  ),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Color.lerp(const Color(0xFF9D4C5E), const Color(0xFF4C6B9D), _orbController.value)!.withOpacity(0.3),
-                      blurRadius: 40 * _orbController.value + 20,
-                      spreadRadius: 10 * _orbController.value,
+  Widget _buildBlurredProfileHeader(int aiScore) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 16.0),
+      child: Row(
+        children: [
+          Container(
+            width: 80,
+            height: 80,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              border: Border.all(color: Colors.white.withOpacity(0.2), width: 2),
+              image: DecorationImage(
+                image: NetworkImage(_targetProfile?.avatarUrl ?? 'https://ui-avatars.com/api/?name=Anonymous'),
+                fit: BoxFit.cover,
+                // Simulate blur effect locally since flutter image filter can be heavy
+                colorFilter: _isFullyUnlocked ? null : ColorFilter.mode(Colors.black.withOpacity(0.6), BlendMode.darken),
+              ),
+            ),
+            child: ClipOval(
+              child: BackdropFilter(
+                filter: null, // Just an overlay is fine for now
+                child: Container(color: _isFullyUnlocked ? Colors.transparent : Colors.white.withOpacity(0.2)),
+              ),
+            ),
+          ),
+          const SizedBox(width: 20),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  _isFullyUnlocked ? (_targetProfile?.fullName ?? 'Unknown') : 'Anonymous Match',
+                  style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF34C759).withOpacity(0.2),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.auto_awesome, color: Color(0xFF34C759), size: 14),
+                          const SizedBox(width: 4),
+                          Text(
+                            '$aiScore% AI Vibe Match',
+                            style: const TextStyle(color: Color(0xFF34C759), fontSize: 12, fontWeight: FontWeight.bold),
+                          ),
+                        ],
+                      ),
                     ),
                   ],
                 ),
-                child: Center(
-                  child: Container(
-                     width: 100,
-                    height: 100,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: Colors.white.withOpacity(0.1),
-                    ),
-                  ),
-                ),
-              );
-            },
-          ),
-        ),
-        const SizedBox(height: 24),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(24),
-            border: Border.all(color: const Color(0xFFF2F2F7)),
-          ),
-          child: Text(
-            _currentInsight,
-            style: const TextStyle(
-              color: Color(0xFF2C2C2E),
-              fontWeight: FontWeight.w600,
-              fontSize: 15,
+              ],
             ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 
-  Widget _buildPersonalityTraits() {
-    final interests = _targetProfile?.interests ?? [];
-    if (interests.isEmpty) {
-       return _buildTrait("Prefers to keep things mysterious");
-    }
-    
-    return Column(
-      children: interests.take(3).map((interest) {
-        return Padding(
-          padding: const EdgeInsets.only(bottom: 12),
-          child: _buildTrait(interest),
-        );
-      }).toList(),
-    );
-  }
-
-  Widget _buildTrait(String trait) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        Container(
-          width: 6,
-          height: 6,
-          decoration: const BoxDecoration(color: Color(0xFF9D4C5E), shape: BoxShape.circle),
-        ),
-        const SizedBox(width: 12),
-        Text(
-          trait,
-          style: const TextStyle(
-            color: Color(0xFF6B6B6B),
-            fontSize: 16,
-            fontWeight: FontWeight.w500,
+  Widget _buildWordLimitIndicator(int wordsRemaining) {
+    final double progress = wordsRemaining / 800;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 24.0).copyWith(bottom: 24.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text('Session Limit', style: TextStyle(color: Colors.white54, fontSize: 12, fontWeight: FontWeight.bold)),
+              Text('$wordsRemaining words left', style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
+            ],
           ),
-        ),
-      ],
+          const SizedBox(height: 8),
+          Container(
+            height: 4,
+            width: double.infinity,
+            decoration: BoxDecoration(color: Colors.white.withOpacity(0.1), borderRadius: BorderRadius.circular(2)),
+            child: FractionallySizedBox(
+              alignment: Alignment.centerRight,
+              widthFactor: progress,
+              child: Container(
+                decoration: BoxDecoration(
+                  color: wordsRemaining < 100 ? const Color(0xFFFF3B30) : const Color(0xFF34C759),
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -405,177 +529,117 @@ class _BlindModeScreenState extends State<BlindModeScreen> with TickerProviderSt
     );
   }
 
-  Widget _buildRecentMessages(List<ChatMessage> messages) {
-    // Show only the last 2 messages for a sleek preview
-    final recentMessages = messages.take(2).toList().reversed.toList();
-    
-    return Container(
+  Widget _buildFullChatList(List<ChatMessage> messages) {
+    return ListView.builder(
       padding: const EdgeInsets.all(24),
-      decoration: BoxDecoration(
-        color: const Color(0xFFF9F9F9),
-        borderRadius: BorderRadius.circular(40),
-      ),
+      reverse: true, // Scroll from bottom
+      itemCount: messages.length,
+      itemBuilder: (context, index) {
+        final msg = messages[index];
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 16),
+          child: Row(
+            mainAxisAlignment: msg.isMe ? MainAxisAlignment.end : MainAxisAlignment.start,
+            children: [
+              if (!msg.isMe) ...[
+                CircleAvatar(
+                  radius: 16,
+                  backgroundColor: Colors.grey[300],
+                  child: const Icon(Icons.person, size: 20, color: Colors.white),
+                ),
+                const SizedBox(width: 8),
+              ],
+              Flexible(
+                child: Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: msg.isMe ? AppTheme.primaryMaroon : const Color(0xFFF2F2F7),
+                    borderRadius: BorderRadius.circular(20).copyWith(
+                      bottomRight: msg.isMe ? const Radius.circular(4) : const Radius.circular(20),
+                      bottomLeft: !msg.isMe ? const Radius.circular(4) : const Radius.circular(20),
+                    ),
+                  ),
+                  child: Text(
+                    msg.content,
+                    style: TextStyle(
+                      color: msg.isMe ? Colors.white : const Color(0xFF2C2C2E), 
+                      fontSize: 14, 
+                      height: 1.4
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildActionButtons(bool isLockedOut) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 16.0),
       child: Column(
         children: [
-          const Text(
-            "Recent Exchange",
-            style: TextStyle(
-              color: Color(0xFF2C2C2E),
-              fontWeight: FontWeight.w800,
-              fontSize: 15,
+          if (_hasUnlocked && !_isFullyUnlocked) 
+            Container(
+              padding: const EdgeInsets.all(16),
+              margin: const EdgeInsets.only(bottom: 16),
+              decoration: BoxDecoration(color: const Color(0xFFE6E6E6), borderRadius: BorderRadius.circular(24)),
+              child: const Center(child: Text("Waiting for other user to reveal... ⏳", style: TextStyle(color: Color(0xFF8E8E93), fontWeight: FontWeight.bold))),
             ),
-          ),
-          const SizedBox(height: 16),
-          ...recentMessages.map((msg) => Padding(
-            padding: const EdgeInsets.only(bottom: 16),
-            child: Row(
-              mainAxisAlignment: msg.isMe ? MainAxisAlignment.end : MainAxisAlignment.start,
-              children: [
-                Flexible(
-                  child: _buildResponse(msg.isMe ? "Me" : "Them", msg.content, msg.isMe),
+            
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: () async {
+                    // Permanently end chat logic
+                    final matchId = _matchId;
+                    if (matchId != null) {
+                      await Supabase.instance.client.from('matches').delete().eq('id', matchId);
+                    }
+                    if (mounted) Navigator.pop(context);
+                  },
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    foregroundColor: const Color(0xFFFF3B30),
+                    side: const BorderSide(color: Color(0xFFFF3B30), width: 1.5),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+                  ),
+                  child: const Text('End Chat', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                ),
+              ),
+              if (!_isFullyUnlocked) ...[
+                const SizedBox(width: 12),
+                Expanded(
+                  child: ElevatedButton(
+                    onPressed: _hasUnlocked ? null : _unlockIdentity,
+                    style: ElevatedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      backgroundColor: AppTheme.primaryMaroon,
+                      elevation: 0,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+                    ),
+                    child: _isUnlocking 
+                      ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                      : const Text('Reveal Identity', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15)),
+                  ),
                 ),
               ],
-            ),
-          )),
+            ],
+          ),
         ],
       ),
     );
   }
 
-  Widget _buildResponse(String user, String text, bool isMe) {
-    return Column(
-      crossAxisAlignment: isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
-      children: [
-        Text(
-          user,
-          style: const TextStyle(color: Color(0xFF8E8E93), fontSize: 12, fontWeight: FontWeight.bold),
-        ),
-        const SizedBox(height: 8),
-        Container(
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: isMe ? AppTheme.primaryMaroon.withOpacity(0.1) : Colors.white,
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: isMe ? Colors.transparent : const Color(0xFFE5E5E5)),
-          ),
-          child: Text(
-            text,
-            style: const TextStyle(color: Color(0xFF2C2C2E), fontSize: 13, height: 1.4),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildConnectionMeter() {
-    return Column(
-      children: [
-        Container(
-          width: double.infinity,
-          height: 8,
-          decoration: BoxDecoration(
-            color: const Color(0xFFF2F2F7),
-            borderRadius: BorderRadius.circular(4),
-          ),
-          child: FractionallySizedBox(
-            alignment: Alignment.centerLeft,
-            widthFactor: _connectionProgress,
-            child: Container(
-              decoration: BoxDecoration(
-                gradient: AppTheme.buttonGradient,
-                borderRadius: BorderRadius.circular(4),
-              ),
-            ),
-          ),
-        ),
-        const SizedBox(height: 12),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            _buildMeterStage("Curious", _connectionProgress >= 0.2),
-            _buildMeterStage("Vibing", _connectionProgress >= 0.5),
-            _buildMeterStage("Strong Match", _connectionProgress >= 0.9),
-          ],
-        ),
-      ],
-    );
-  }
-
-  Widget _buildMeterStage(String label, bool isActive) {
-    return Text(
-      label,
-      style: TextStyle(
-        color: isActive ? const Color(0xFF9D4C5E) : const Color(0xFFC7C7CC),
-        fontSize: 13,
-        fontWeight: isActive ? FontWeight.bold : FontWeight.w500,
-      ),
-    );
-  }
-
-  Widget _buildUnlockButton() {
-    if (_hasUnlocked) {
-      return Container(
-        width: double.infinity,
-        height: 60,
-        decoration: BoxDecoration(
-          color: const Color(0xFFE6E6E6),
-          borderRadius: BorderRadius.circular(30),
-        ),
-        child: const Center(
-          child: Text(
-            "Waiting for other user to unlock... ⏳",
-            style: TextStyle(
-              color: Color(0xFF8E8E93), 
-              fontWeight: FontWeight.bold, 
-              fontSize: 15
-            ),
-          ),
-        ),
-      );
-    }
-
-    final bool canUnlock = _connectionProgress >= 1.0;
+  Widget _buildChatInputArea(bool isLockedOut) {
+    if (isLockedOut) return const SizedBox.shrink();
     
-    return InkWell(
-      onTap: canUnlock ? _unlockIdentity : () {
-        UIHelpers.showSnackBar(context, 'Exchange more messages to unlock!');
-      },
-      borderRadius: BorderRadius.circular(30),
-      child: Container(
-        width: double.infinity,
-        height: 60,
-        decoration: BoxDecoration(
-          gradient: canUnlock ? AppTheme.buttonGradient : null,
-          color: canUnlock ? null : const Color(0xFFE6E6E6),
-          borderRadius: BorderRadius.circular(30),
-          boxShadow: canUnlock ? [
-            BoxShadow(
-              color: AppTheme.primaryMaroon.withOpacity(0.3),
-              blurRadius: 10,
-              offset: const Offset(0, 4),
-            ),
-          ] : null,
-        ),
-        child: Center(
-          child: _isUnlocking 
-            ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-            : Text(
-              canUnlock ? "Unlock Identity 🔓" : "Keep Chatting to Unlock",
-              style: TextStyle(
-                color: canUnlock ? Colors.white : const Color(0xFF8E8E93), 
-                fontWeight: FontWeight.bold, 
-                fontSize: 16
-              ),
-            ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildChatInputArea() {
     return Container(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-      color: Colors.white,
+      color: const Color(0xFFFCFAFA),
       child: Column(
         children: [
           SingleChildScrollView(
@@ -628,6 +692,111 @@ class _BlindModeScreenState extends State<BlindModeScreen> with TickerProviderSt
                 ),
               ),
             ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMatchPopup() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(24.0),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const Text(
+            'Match Found!',
+            style: TextStyle(color: Colors.white, fontSize: 32, fontWeight: FontWeight.bold, letterSpacing: -1),
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            'Someone matches your vibe.',
+            style: TextStyle(color: Colors.white70, fontSize: 16),
+          ),
+          const SizedBox(height: 48),
+          
+          // Blurred Profile Card
+          Container(
+            padding: const EdgeInsets.all(32),
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.05),
+              borderRadius: BorderRadius.circular(40),
+              border: Border.all(color: Colors.white.withOpacity(0.1)),
+            ),
+            child: Column(
+              children: [
+                Container(
+                  width: 120,
+                  height: 120,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    border: Border.all(color: AppTheme.primaryMaroon.withOpacity(0.5), width: 3),
+                    image: DecorationImage(
+                      image: NetworkImage(_targetProfile?.avatarUrl ?? 'https://ui-avatars.com/api/?name=Anonymous'),
+                      fit: BoxFit.cover,
+                      colorFilter: ColorFilter.mode(Colors.black.withOpacity(0.7), BlendMode.darken),
+                    ),
+                  ),
+                  child: ClipOval(
+                    child: BackdropFilter(
+                      filter: null, // Basic overlay is used above
+                      child: Container(color: Colors.white.withOpacity(0.2)),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 24),
+                const Text(
+                  'Anonymous Profile',
+                  style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Icon(Icons.auto_awesome, color: Color(0xFF34C759), size: 16),
+                    const SizedBox(width: 8),
+                    Text(
+                      'High Vibe Match',
+                      style: const TextStyle(color: Color(0xFF34C759), fontSize: 14, fontWeight: FontWeight.bold),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          
+          const SizedBox(height: 64),
+          
+          // Start Chat Button
+          SizedBox(
+            width: double.infinity,
+            height: 60,
+            child: ElevatedButton(
+              onPressed: () {
+                setState(() => _showMatchPopup = false);
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppTheme.primaryMaroon,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+                elevation: 0,
+              ),
+              child: const Text('Start Chat', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+            ),
+          ),
+          
+          const SizedBox(height: 16),
+          
+          // Skip Button
+          TextButton(
+            onPressed: () async {
+              // Delete match and go back
+              if (_matchId != null) {
+                await Supabase.instance.client.from('matches').delete().eq('id', _matchId!);
+              }
+              if (mounted) Navigator.pop(context);
+            },
+            child: const Text('Skip for now', style: TextStyle(color: Colors.white54, fontSize: 16, fontWeight: FontWeight.bold)),
           ),
         ],
       ),

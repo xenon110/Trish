@@ -11,6 +11,7 @@ import 'package:trish_app/screens/home/wallet_screen.dart';
 import 'package:trish_app/screens/home/my_wallet_screen.dart';
 import 'package:trish_app/screens/home/gift_history_screen.dart';
 import 'package:trish_app/screens/home/notifications_screen.dart';
+import 'package:trish_app/screens/home/discovery_filter_screen.dart';
 import 'package:trish_app/screens/home/settings_screen.dart';
 import 'package:trish_app/screens/home/help_support_screen.dart';
 import 'package:trish_app/screens/home/invite_friends_screen.dart';
@@ -20,6 +21,7 @@ import 'package:trish_app/screens/auth/login_screen.dart';
 import 'package:trish_app/screens/home/global_moments_screen.dart';
 import 'package:trish_app/core/matching_service.dart';
 import 'package:trish_app/screens/home/match_found_overlay.dart';
+import 'package:trish_app/screens/home/user_detail_screen.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -67,14 +69,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
         child: Column(
           children: [
             _buildHeader(),
-            _buildFilters(),
+            // Filter chips removed as per user request to capture more vertical space
             Expanded(
               child: _isLoading
                   ? const Center(child: CircularProgressIndicator())
                   : _profiles.isEmpty
                       ? _buildEmptyState()
                       : Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 16.0),
+                          padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 4.0),
                           child: CardSwiper(
                             controller: _swiperController,
                             cardsCount: _profiles.length,
@@ -88,8 +90,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           ),
                         ),
             ),
-            _buildActionButtons(),
-            const SizedBox(height: 24),
           ],
         ),
       ),
@@ -104,26 +104,24 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final profile = _profiles[previousIndex];
     final bool isLike = direction == CardSwiperDirection.right;
 
-    if (isLike) {
-      _matchingService.sendLike(profile.id).then((matchId) {
-        if (matchId != null && mounted) {
-          final currentUserMetadata = _authService.currentUser?.userMetadata;
-          final currentUserAvatar = currentUserMetadata?['avatar_url'] ?? '';
+    _discoveryService.swipe(profile.id, isLike).then((matchId) {
+      if (matchId != null && mounted) {
+        final currentUserMetadata = _authService.currentUser?.userMetadata;
+        final currentUserAvatar = currentUserMetadata?['avatar_url'] ?? '';
 
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              fullscreenDialog: true,
-              builder: (context) => MatchFoundOverlay(
-                matchedProfile: profile,
-                currentUserAvatar: currentUserAvatar,
-                matchId: matchId,
-              ),
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            fullscreenDialog: true,
+            builder: (context) => MatchFoundOverlay(
+              matchedProfile: profile,
+              currentUserAvatar: currentUserAvatar,
+              matchId: matchId,
             ),
-          );
-        }
-      });
-    }
+          ),
+        );
+      }
+    });
 
     if (currentIndex == null || currentIndex >= _profiles.length) {
       // End of deck, maybe load more?
@@ -207,9 +205,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  CircleAvatar(
+                  const CircleAvatar(
                     radius: 45,
-                    backgroundImage: AssetImage('assets/image/connection.jpg'), // Current user
+                    backgroundImage: AssetImage('assets/image/connection.jpg'),
                   ),
                   const SizedBox(width: -15),
                   Container(
@@ -311,10 +309,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   constraints: const BoxConstraints(),
                 ),
                 IconButton(
-                  onPressed: () {
-                    Navigator.push(context, MaterialPageRoute(builder: (context) => const NotificationsScreen()));
+                  onPressed: () async {
+                    final updated = await Navigator.push<bool>(context, MaterialPageRoute(builder: (context) => const DiscoveryFilterScreen()));
+                    if (updated == true) {
+                      _loadProfiles();
+                    }
                   },
-                  icon: Icon(Icons.notifications_none_rounded, color: AppTheme.primaryMaroon.withValues(alpha: 0.85), size: 24),
+                  icon: Icon(Icons.tune_rounded, color: AppTheme.primaryMaroon.withValues(alpha: 0.85), size: 24),
                   padding: const EdgeInsets.all(8),
                   constraints: const BoxConstraints(),
                 ),
@@ -537,143 +538,192 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Widget _buildProfileCard(UserProfile profile) {
-    return Container(
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(24),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.08),
-            blurRadius: 16,
-            spreadRadius: 2,
-            offset: const Offset(0, 8),
-          ),
-        ],
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(24),
-        child: Stack(
-          alignment: Alignment.bottomLeft,
-          children: [
-            // Profile Image Content
-            Positioned.fill(
-              child: profile.avatarUrl != null
-                  ? Image.network(
-                      profile.avatarUrl!,
-                      fit: BoxFit.cover,
-                      errorBuilder: (context, error, stackTrace) => Container(color: Colors.grey[300]),
-                    )
-                  : Image.network(
-                      AppConstants.defaultAvatar1,
-                      fit: BoxFit.cover,
-                    ),
-            ),
-            // Report Button
-            Positioned(
-              top: 16,
-              right: 16,
-              child: GestureDetector(
-                onTap: () => _showReportDialog(profile),
-                child: Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: Colors.black.withOpacity(0.3),
-                    shape: BoxShape.circle,
-                  ),
-                  child: const Icon(Icons.flag_rounded, color: Colors.white70, size: 20),
-                ),
-              ),
-            ),
-            // Soft Gradient Overlay matching instructions
-            Positioned(
-              left: 0,
-              right: 0,
-              bottom: 0,
-              height: 250,
-              child: Container(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: [
-                      Colors.transparent,
-                      Colors.black.withOpacity(0.4),
-                      Colors.black.withOpacity(0.85),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-            // Profile Overlay Text (Name, Location, Hobby)
-            Padding(
-              padding: const EdgeInsets.all(24.0),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.center,
-                    children: [
-                      Flexible(
-                        child: Text(
-                          '${profile.fullName}, ${profile.age}',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 32,
-                            fontWeight: FontWeight.w800,
-                            letterSpacing: -0.5,
-                          ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      const Icon(Icons.verified, color: Colors.blueAccent, size: 24),
-                    ],
-                  ),
-                  const SizedBox(height: 6),
-                  Row(
-                    children: [
-                      const Icon(Icons.location_on, color: Colors.white70, size: 16),
-                      const SizedBox(width: 4),
-                      Text(
-                        profile.location,
-                        style: const TextStyle(
-                          color: Colors.white70,
-                          fontSize: 16,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  if (profile.interests.isNotEmpty)
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.2),
-                        borderRadius: BorderRadius.circular(20),
-                        border: Border.all(color: Colors.white.withOpacity(0.3)),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const Icon(Icons.star_border, color: Colors.white, size: 16),
-                          const SizedBox(width: 6),
-                          Text(
-                            profile.interests.first,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 14,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                ],
-              ),
+    return GestureDetector(
+      onTap: () async {
+        final result = await Navigator.push<bool>(
+          context,
+          MaterialPageRoute(builder: (context) => UserDetailScreen(profile: profile)),
+        );
+        
+        if (result != null && mounted) {
+          if (result) {
+            _swiperController.swipe(CardSwiperDirection.right);
+          } else {
+            _swiperController.swipe(CardSwiperDirection.left);
+          }
+        }
+      },
+      child: Container(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(24),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.08),
+              blurRadius: 16,
+              spreadRadius: 2,
+              offset: const Offset(0, 8),
             ),
           ],
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(24),
+          child: Stack(
+            alignment: Alignment.bottomLeft,
+            children: [
+              // Profile Image Content
+              Positioned.fill(
+                child: profile.avatarUrl != null
+                    ? Image.network(
+                        profile.avatarUrl!,
+                        fit: BoxFit.cover,
+                        errorBuilder: (context, error, stackTrace) => Container(
+                          color: const Color(0xFFF2F2F7),
+                          child: Center(
+                            child: Icon(Icons.image_not_supported_outlined, 
+                              color: AppTheme.primaryMaroon.withOpacity(0.1), 
+                              size: 64
+                            ),
+                          ),
+                        ),
+                      )
+                    : Image.network(
+                        AppConstants.defaultAvatar1,
+                        fit: BoxFit.cover,
+                      ),
+              ),
+              // Report Button
+              Positioned(
+                top: 16,
+                right: 16,
+                child: GestureDetector(
+                  onTap: () => _showReportDialog(profile),
+                  child: Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withOpacity(0.3),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(Icons.flag_rounded, color: Colors.white70, size: 20),
+                  ),
+                ),
+              ),
+              // Soft Gradient Overlay
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: 0,
+                height: 250,
+                child: Container(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [
+                        Colors.transparent,
+                        Colors.black.withOpacity(0.4),
+                        Colors.black.withOpacity(0.85),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              // Profile Overlay Text (Name, Location, Interest)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(24.0, 24.0, 80.0, 24.0),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        Flexible(
+                          child: Text(
+                            '${profile.fullName}, ${profile.age}',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 32,
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: -0.5,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        const Icon(Icons.verified, color: Colors.blueAccent, size: 24),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Row(
+                      children: [
+                        const Icon(Icons.location_on, color: Colors.white70, size: 16),
+                        const SizedBox(width: 4),
+                        Text(
+                          profile.location,
+                          style: const TextStyle(
+                            color: Colors.white70,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    if (profile.interests.isNotEmpty)
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.2),
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(color: Colors.white.withOpacity(0.3)),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.star_border, color: Colors.white, size: 16),
+                            const SizedBox(width: 6),
+                            Text(
+                              profile.interests.first,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              // Floating Action Buttons (Like/Dislike) on the card
+              Positioned(
+                right: 16,
+                bottom: 24,
+                child: Column(
+                  children: [
+                    _buildCircularIconButton(
+                      icon: Icons.favorite_rounded,
+                      color: const Color(0xFF4CE5A0),
+                      size: 48,
+                      iconSize: 24,
+                      onTap: () => _swiperController.swipe(CardSwiperDirection.right),
+                    ),
+                    const SizedBox(height: 12),
+                    _buildCircularIconButton(
+                      icon: Icons.close_rounded,
+                      color: const Color(0xFFE56A7C),
+                      size: 48,
+                      iconSize: 24,
+                      onTap: () => _swiperController.swipe(CardSwiperDirection.left),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -737,40 +787,43 @@ class _DashboardScreenState extends State<DashboardScreen> {
   void _showReportDialog(UserProfile profile) {
     showModalBottomSheet(
       context: context,
+      isScrollControlled: true,
       backgroundColor: Colors.white,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
       ),
       builder: (context) {
         return Padding(
-          padding: const EdgeInsets.all(32.0),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'Report User',
-                style: TextStyle(fontSize: 24, fontWeight: FontWeight.w800, color: Color(0xFF2C2C2E)),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'Why are you reporting ${profile.fullName.split(' ').first}?',
-                style: const TextStyle(fontSize: 16, color: Color(0xFF8E8E93)),
-              ),
-              const SizedBox(height: 24),
-              _buildReportOption(profile, 'Fake Profile / Spam'),
-              _buildReportOption(profile, 'Inappropriate Content'),
-              _buildReportOption(profile, 'Harassment'),
-              _buildReportOption(profile, 'Underage'),
-              const SizedBox(height: 24),
-              SizedBox(
-                width: double.infinity,
-                child: TextButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: const Text('Cancel', style: TextStyle(color: Color(0xFF8E8E93), fontWeight: FontWeight.bold)),
+          padding: EdgeInsets.fromLTRB(32.0, 32.0, 32.0, MediaQuery.of(context).padding.bottom + 16),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Report User',
+                  style: TextStyle(fontSize: 24, fontWeight: FontWeight.w800, color: Color(0xFF2C2C2E)),
                 ),
-              ),
-            ],
+                const SizedBox(height: 8),
+                Text(
+                  'Why are you reporting ${profile.fullName.split(' ').first}?',
+                  style: const TextStyle(fontSize: 16, color: Color(0xFF8E8E93)),
+                ),
+                const SizedBox(height: 24),
+                _buildReportOption(profile, 'Fake Profile / Spam'),
+                _buildReportOption(profile, 'Inappropriate Content'),
+                _buildReportOption(profile, 'Harassment'),
+                _buildReportOption(profile, 'Underage'),
+                const SizedBox(height: 24),
+                SizedBox(
+                  width: double.infinity,
+                  child: TextButton(
+                    onPressed: () => Navigator.pop(context),
+                    child: const Text('Cancel', style: TextStyle(color: Color(0xFF8E8E93), fontWeight: FontWeight.bold)),
+                  ),
+                ),
+              ],
+            ),
           ),
         );
       },

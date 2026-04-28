@@ -1,11 +1,6 @@
-
 import 'package:flutter/material.dart';
 import '../../core/theme.dart';
 import '../../core/auth_service.dart';
-import '../../models/user_profile.dart';
-import '../../models/moment.dart';
-import '../../core/ui_helpers.dart';
-import 'interaction_chat_screen.dart';
 
 class GlobalMomentsScreen extends StatefulWidget {
   const GlobalMomentsScreen({super.key});
@@ -16,46 +11,26 @@ class GlobalMomentsScreen extends StatefulWidget {
 
 class _GlobalMomentsScreenState extends State<GlobalMomentsScreen> {
   final AuthService _authService = AuthService();
-  List<Moment> _moments = [];
+  List<Map<String, dynamic>> _moments = [];
   bool _isLoading = true;
 
   @override
   void initState() {
     super.initState();
-    _loadAllMoments();
+    _load();
   }
 
-  Future<void> _loadAllMoments() async {
+  Future<void> _load() async {
     setState(() => _isLoading = true);
     try {
-      final profiles = await _authService.getProfiles();
-      final List<Moment> allMoments = [];
-      
-      for (var profile in profiles) {
-        for (var momentUrl in profile.moments) {
-          allMoments.add(Moment(
-            imageUrl: momentUrl,
-            userId: profile.id,
-            userName: profile.fullName,
-            userAvatar: profile.avatarUrl,
-            location: profile.location,
-            createdAt: profile.locationUpdatedAt ?? DateTime.now(),
-          ));
-        }
-      }
-      
-      // Shuffle for discovery feel
-      allMoments.shuffle();
-      
+      final data = await _authService.getPublicMoments();
+      debugPrint('DEBUG: Loaded ${data.length} public moments');
       setState(() {
-        _moments = allMoments;
+        _moments = data..shuffle();
         _isLoading = false;
       });
     } catch (e) {
-      if (mounted) {
-        setState(() => _isLoading = false);
-        UIHelpers.showSnackBar(context, 'Error loading moments: $e');
-      }
+      setState(() => _isLoading = false);
     }
   }
 
@@ -68,191 +43,157 @@ class _GlobalMomentsScreenState extends State<GlobalMomentsScreen> {
         backgroundColor: Colors.transparent,
         elevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new, color: Colors.white),
+          icon: const Icon(Icons.arrow_back_ios_new, color: Colors.white, size: 18),
           onPressed: () => Navigator.pop(context),
         ),
-        title: const Text(
-          'Moments',
-          style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800),
-        ),
+        title: const Text('TRISH Reels', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, letterSpacing: 1.2)),
+        centerTitle: true,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh_rounded, color: Colors.white),
+            onPressed: _load,
+          ),
+        ],
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator(color: Colors.white))
           : _moments.isEmpty
-              ? _buildEmptyState()
-              : PageView.builder(
-                  scrollDirection: Axis.vertical,
-                  itemCount: _moments.length,
-                  itemBuilder: (context, index) {
-                    return _buildMomentItem(_moments[index]);
-                  },
+              ? _buildEmpty()
+              : RefreshIndicator(
+                  onRefresh: _load,
+                  color: AppTheme.primaryMaroon,
+                  child: PageView.builder(
+                    scrollDirection: Axis.vertical,
+                    itemCount: _moments.length,
+                    itemBuilder: (context, index) => _buildItem(_moments[index]),
+                  ),
                 ),
     );
   }
 
-  Widget _buildMomentItem(Moment moment) {
+  Widget _buildItem(Map<String, dynamic> m) {
+    final profile = m['profiles'] as Map? ?? {};
+    final name = profile['full_name'] ?? 'Someone';
+    final avatar = profile['avatar_url'];
+    final location = profile['location'];
+    final imageUrl = m['image_url'] as String;
+    final caption = (m['caption'] ?? '').toString();
+
     return Stack(
       fit: StackFit.expand,
       children: [
-        // Background Image
+        // Photo
         Image.network(
-          moment.imageUrl,
+          imageUrl,
           fit: BoxFit.cover,
-          errorBuilder: (context, error, stackTrace) => Container(
+          errorBuilder: (_, __, ___) => Container(
             color: Colors.grey[900],
             child: const Icon(Icons.broken_image, color: Colors.white54, size: 64),
           ),
         ),
-        
-        // Gradient Overlay
-        Positioned.fill(
-          child: Container(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [
-                  Colors.black.withOpacity(0.3),
-                  Colors.transparent,
-                  Colors.transparent,
-                  Colors.black.withOpacity(0.8),
-                ],
-                stops: const [0.0, 0.2, 0.7, 1.0],
-              ),
+
+        // Gradient overlay
+        Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [
+                Colors.black.withOpacity(0.35),
+                Colors.transparent,
+                Colors.transparent,
+                Colors.black.withOpacity(0.85),
+              ],
+              stops: const [0.0, 0.2, 0.65, 1.0],
             ),
           ),
         ),
-        
-        // User Info & Actions
+
+        // Bottom info
         Positioned(
-          left: 16,
-          right: 16,
-          bottom: 40,
+          left: 20, right: 20, bottom: 50,
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
+              // Left: user info
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(
-                      children: [
-                        CircleAvatar(
-                          radius: 20,
-                          backgroundImage: moment.userAvatar != null
-                              ? NetworkImage(moment.userAvatar!)
-                              : null,
-                          child: moment.userAvatar == null
-                              ? const Icon(Icons.person, color: Colors.white)
-                              : null,
-                        ),
-                        const SizedBox(width: 12),
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              moment.userName,
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 18,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                            if (moment.location != null)
-                              Text(
-                                moment.location!,
-                                style: TextStyle(
-                                  color: Colors.white.withOpacity(0.7),
-                                  fontSize: 14,
-                                ),
-                              ),
-                          ],
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-                    Text(
-                      'Caught a beautiful moment! ✨',
-                      style: const TextStyle(color: Colors.white, fontSize: 15),
-                    ),
+                    Row(children: [
+                      CircleAvatar(
+                        radius: 22,
+                        backgroundImage: avatar != null ? NetworkImage(avatar) : null,
+                        backgroundColor: Colors.white24,
+                        child: avatar == null ? const Icon(Icons.person, color: Colors.white, size: 20) : null,
+                      ),
+                      const SizedBox(width: 12),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(name, style: const TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.w800)),
+                          if (location != null && location.isNotEmpty)
+                            Row(children: [
+                              const Icon(Icons.location_on_rounded, color: Colors.white60, size: 13),
+                              const SizedBox(width: 3),
+                              Text(location, style: const TextStyle(color: Colors.white60, fontSize: 13)),
+                            ]),
+                        ],
+                      ),
+                    ]),
+                    if (caption.isNotEmpty) ...[
+                      const SizedBox(height: 12),
+                      Text(caption, style: const TextStyle(color: Colors.white, fontSize: 15, height: 1.4)),
+                    ],
                   ],
                 ),
               ),
-              
-              // Action Buttons
-              Column(
-                children: [
-                  _buildActionButton(
-                    icon: Icons.favorite_rounded,
-                    label: 'Like',
-                    color: Colors.redAccent,
-                    onTap: () => UIHelpers.showSnackBar(context, 'You liked this moment!'),
-                  ),
-                  const SizedBox(height: 20),
-                  _buildActionButton(
-                    icon: Icons.chat_bubble_rounded,
-                    label: 'Say Hi',
-                    color: Colors.blueAccent,
-                    onTap: () {
-                      // Navigate to chat (mock for now as we need a real match/interaction)
-                      UIHelpers.showSnackBar(context, 'Opening chat with ${moment.userName}...');
-                    },
-                  ),
-                ],
-              ),
+
+              // Right: action buttons
+              Column(children: [
+                _actionBtn(Icons.favorite_rounded, 'Like', Colors.pinkAccent, () {}),
+                const SizedBox(height: 20),
+                _actionBtn(Icons.chat_bubble_rounded, 'Say Hi', Colors.blueAccent, () {}),
+              ]),
             ],
+          ),
+        ),
+
+        // Scroll hint at bottom
+        const Positioned(
+          bottom: 16, left: 0, right: 0,
+          child: Center(
+            child: Icon(Icons.keyboard_arrow_up_rounded, color: Colors.white38, size: 28),
           ),
         ),
       ],
     );
   }
 
-  Widget _buildActionButton({
-    required IconData icon,
-    required String label,
-    required Color color,
-    required VoidCallback onTap,
-  }) {
+  Widget _actionBtn(IconData icon, String label, Color color, VoidCallback onTap) {
     return GestureDetector(
       onTap: onTap,
-      child: Column(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.2),
-              shape: BoxShape.circle,
-            ),
-            child: Icon(icon, color: Colors.white, size: 28),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            label,
-            style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600),
-          ),
-        ],
-      ),
+      child: Column(children: [
+        Container(
+          padding: const EdgeInsets.all(13),
+          decoration: BoxDecoration(color: Colors.white.withOpacity(0.18), shape: BoxShape.circle),
+          child: Icon(icon, color: Colors.white, size: 26),
+        ),
+        const SizedBox(height: 5),
+        Text(label, style: const TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.w600)),
+      ]),
     );
   }
 
-  Widget _buildEmptyState() {
+  Widget _buildEmpty() {
     return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          const Icon(Icons.auto_awesome_motion_rounded, color: Colors.white24, size: 80),
-          const SizedBox(height: 24),
-          const Text(
-            'No moments yet',
-            style: TextStyle(color: Colors.white70, fontSize: 18, fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 8),
-          const Text(
-            'Be the first to share a moment!',
-            style: TextStyle(color: Colors.white54, fontSize: 14),
-          ),
-        ],
-      ),
+      child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+        const Icon(Icons.auto_awesome_motion_rounded, color: Colors.white24, size: 80),
+        const SizedBox(height: 24),
+        const Text('No public moments yet', style: TextStyle(color: Colors.white70, fontSize: 18, fontWeight: FontWeight.w700)),
+        const SizedBox(height: 8),
+        const Text('Share a photo publicly from your Moments tab!', textAlign: TextAlign.center, style: TextStyle(color: Colors.white38, fontSize: 14)),
+      ]),
     );
   }
 }

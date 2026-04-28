@@ -202,7 +202,7 @@ class WalletScreen extends StatelessWidget {
                       Colors.white.withOpacity(0.15),
                       Colors.white,
                       () {
-                        Navigator.push(context, MaterialPageRoute(builder: (context) => const GiftHistoryScreen()));
+                        Navigator.push(context, MaterialPageRoute(builder: (context) => const GiftHistoryScreen(initialTabIndex: 2)));
                       },
                     ),
                   ),
@@ -249,8 +249,8 @@ class WalletScreen extends StatelessWidget {
       children: [
         _buildActionCard(
           context,
-          'Add New Gift',
-          Icons.add_rounded,
+          'Send Gift',
+          Icons.card_giftcard_rounded,
           const Color(0xFFFDECEC),
           onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const AddGiftScreen())),
         ),

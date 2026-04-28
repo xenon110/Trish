@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Trish Admin Portal</title>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Outfit', sans-serif; background: #0F0C29; color: white; }
+        .glass { background: rgba(255, 255, 255, 0.03); backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.1); }
+        .status-badge { padding: 4px 12px; border-radius: 20px; font-size: 11px; font-weight: 800; text-transform: uppercase; }
+        input { background: rgba(255, 255, 255, 0.05) !important; border: 1px solid rgba(255, 255, 255, 0.1) !important; color: white !important; }
+        .btn-primary { background: linear-gradient(135deg, #E91E63 0%, #9C27B0 100%); transition: all 0.3s ease; }
+        .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 10px 20px rgba(233, 30, 99, 0.3); }
+    </style>
+</head>
+<body class="min-h-screen">
+    <!-- --- LOGIN / SIGNUP SCREEN --- -->
+    <div id="login-screen" class="fixed inset-0 flex items-center justify-center z-50 bg-[#0F0C29]">
+        <div class="glass p-10 rounded-[40px] w-full max-w-md text-center">
+            <h1 class="text-3xl font-extrabold mb-2 text-white">TRISH <span class="text-rose-500">ADMIN</span></h1>
+            <p id="auth-title" class="text-gray-400 mb-8">Secure Login</p>
+            
+            <input type="text" id="admin-name" placeholder="Full Name" class="w-full p-4 rounded-2xl mb-4 hidden outline-none focus:border-rose-500">
+            <input type="email" id="admin-email" placeholder="Admin Email" class="w-full p-4 rounded-2xl mb-4 outline-none focus:border-rose-500">
+            <input type="password" id="admin-password" placeholder="Password" class="w-full p-4 rounded-2xl mb-4 outline-none focus:border-rose-500">
+            <input type="password" id="secret-key" placeholder="Secret Admin Key" class="w-full p-4 rounded-2xl mb-6 hidden outline-none focus:border-rose-500">
+            
+            <button id="auth-button" onclick="handleAuth()" class="btn-primary w-full p-4 rounded-2xl font-bold">Login to Dashboard</button>
+            
+            <div class="mt-6 text-sm">
+                <span id="auth-switch-text" class="text-gray-500">Don't have an account?</span>
+                <button onclick="toggleAuthMode()" id="auth-switch-button" class="text-rose-500 font-bold ml-1 hover:underline">Create Admin Account</button>
+            </div>
+            
+            <p id="auth-error" class="text-rose-500 mt-4 text-sm hidden"></p>
+            <p id="auth-success" class="text-green-500 mt-4 text-sm hidden"></p>
+        </div>
+    </div>
+
+    <!-- --- MAIN DASHBOARD --- -->
+    <div id="dashboard" class="hidden p-8 max-w-6xl mx-auto">
+        <header class="flex justify-between items-end mb-12">
+            <div>
+                <h1 class="text-4xl font-extrabold text-white">Gift <span class="text-rose-500">Orders</span></h1>
+                <p class="text-gray-400 mt-1">Real-time fulfillment tracking</p>
+            </div>
+            <div class="flex gap-6">
+                <div class="glass px-6 py-3 rounded-2xl text-center">
+                    <span id="pending-count" class="text-2xl font-bold text-yellow-400">0</span>
+                    <p class="text-[10px] text-gray-500 uppercase font-bold tracking-widest">Awaiting</p>
+                </div>
+                <div class="glass px-6 py-3 rounded-2xl text-center">
+                    <span id="delivered-count" class="text-2xl font-bold text-green-400">0</span>
+                    <p class="text-[10px] text-gray-500 uppercase font-bold tracking-widest">Success</p>
+                </div>
+                <button onclick="handleLogout()" class="text-gray-500 hover:text-white transition-colors ml-4 text-sm font-bold underline">Logout</button>
+            </div>
+        </header>
+
+        <div id="orders-list" class="grid gap-6">
+            <!-- Orders load here -->
+            <div class="text-center py-20 animate-pulse text-gray-500 italic">Syncing with database...</div>
+        </div>
+    </div>
+
+    <script>
+        const SUPABASE_URL = 'https://nmdtavzojxshsqpkvzqh.supabase.co';
+        const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV2aGRyeGVuYXBiY2d1ZXV2dXB5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY4MzExNzksImV4cCI6MjA5MjQwNzE3OX0.T-bvAnH5SKBHRZD5OGOvTHTVog2Bk317RvA70OyxEfs';
+
+        const _supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+        let isLoginMode = true;
+
+        function toggleAuthMode() {
+            isLoginMode = !isLoginMode;
+            document.getElementById('auth-title').innerText = isLoginMode ? 'Secure Login' : 'Create Admin Account';
+            document.getElementById('auth-button').innerText = isLoginMode ? 'Login to Dashboard' : 'Sign Up Now';
+            document.getElementById('auth-switch-text').innerText = isLoginMode ? "Don't have an account?" : 'Already have an account?';
+            document.getElementById('auth-switch-button').innerText = isLoginMode ? 'Create Admin Account' : 'Back to Login';
+            
+            // Show/Hide signup fields
+            document.getElementById('admin-name').classList.toggle('hidden', isLoginMode);
+            document.getElementById('secret-key').classList.toggle('hidden', isLoginMode);
+            
+            document.getElementById('auth-error').classList.add('hidden');
+            document.getElementById('auth-success').classList.add('hidden');
+        }
+
+        async function handleAuth() {
+            const email = document.getElementById('admin-email').value;
+            const password = document.getElementById('admin-password').value;
+            const fullName = document.getElementById('admin-name').value;
+            const secretKey = document.getElementById('secret-key').value;
+            
+            const errorEl = document.getElementById('auth-error');
+            const successEl = document.getElementById('auth-success');
+
+            errorEl.classList.add('hidden');
+            successEl.classList.add('hidden');
+
+            if (isLoginMode) {
+                const { data, error } = await _supabase.auth.signInWithPassword({ email, password });
+                if (error) {
+                    errorEl.innerText = error.message;
+                    errorEl.classList.remove('hidden');
+                } else {
+                    enterDashboard();
+                }
+            } else {
+                // Validate Secret Key
+                if (secretKey !== 'TRISH2026') {
+                    errorEl.innerText = 'Invalid Secret Admin Key!';
+                    errorEl.classList.remove('hidden');
+                    return;
+                }
+
+                const { data, error } = await _supabase.auth.signUp({ 
+                    email, 
+                    password,
+                    options: {
+                        data: { full_name: fullName }
+                    }
+                });
+                
+                if (error) {
+                    errorEl.innerText = error.message;
+                    errorEl.classList.remove('hidden');
+                } else {
+                    successEl.innerText = 'Account created! Please check your email for confirmation.';
+                    successEl.classList.remove('hidden');
+                }
+            }
+        }
+
+        function enterDashboard() {
+            document.getElementById('login-screen').classList.add('hidden');
+            document.getElementById('dashboard').classList.remove('hidden');
+            startOrderSync();
+        }
+
+        async function handleLogout() {
+            await _supabase.auth.signOut();
+            window.location.reload();
+        }
+
+        function startOrderSync() {
+            fetchOrders();
+            setInterval(fetchOrders, 15000); // Sync every 15 seconds
+        }
+
+        async function fetchOrders() {
+            try {
+                const { data, error } = await _supabase
+                    .from('physical_gifts')
+                    .select('*')
+                    .order('created_at', { ascending: false });
+
+                if (error) throw error;
+                renderOrders(data);
+            } catch (err) {
+                console.error('Fetch error:', err);
+            }
+        }
+
+        function renderOrders(orders) {
+            const container = document.getElementById('orders-list');
+            container.innerHTML = '';
+
+            document.getElementById('pending-count').innerText = orders.filter(o => o.status === 'Accepted').length;
+            document.getElementById('delivered-count').innerText = orders.filter(o => o.status === 'Delivered').length;
+
+            if (!orders || orders.length === 0) {
+                container.innerHTML = '<div class="glass p-20 text-center rounded-[40px] text-gray-500">No active gift orders.</div>';
+                return;
+            }
+
+            orders.forEach(order => {
+                const div = document.createElement('div');
+                div.className = 'glass p-8 rounded-[35px] flex justify-between items-center transition-all hover:scale-[1.01]';
+                
+                const isActionable = order.status === 'Accepted' || order.status === 'Out for Delivery';
+                
+                div.innerHTML = `
+                    <div class="flex-1">
+                        <div class="flex items-center gap-5 mb-5">
+                            <div class="w-14 h-14 glass rounded-full flex items-center justify-center text-3xl shadow-inner">
+                                ${getEmoji(order.gift_item)}
+                            </div>
+                            <div>
+                                <h3 class="text-xl font-bold text-white">${order.gift_item}</h3>
+                                <p class="text-xs text-gray-500 font-mono">ORDER #${order.id.slice(0,8).toUpperCase()}</p>
+                            </div>
+                            <span class="status-badge ${getStatusStyle(order.status)} ml-4">${order.status}</span>
+                        </div>
+
+                        ${order.delivery_address ? `
+                            <div class="grid grid-cols-2 gap-6 bg-black/40 p-6 rounded-3xl border border-white/5">
+                                <div>
+                                    <p class="text-[10px] text-gray-500 font-bold uppercase mb-2">Recipient Info</p>
+                                    <p class="font-bold text-white text-lg">${order.recipient_full_name}</p>
+                                    <p class="text-sm text-rose-400 font-bold mt-1">${order.recipient_phone}</p>
+                                </div>
+                                <div>
+                                    <p class="text-[10px] text-gray-500 font-bold uppercase mb-2">Delivery Address</p>
+                                    <p class="text-sm text-gray-300 leading-relaxed">${order.delivery_address}</p>
+                                    <p class="text-xs font-bold text-gray-400 mt-2 italic">Pin: ${order.pincode}</p>
+                                </div>
+                                ${order.personal_message ? `
+                                <div class="col-span-2 mt-4 pt-4 border-t border-white/5">
+                                    <p class="text-xs text-gray-500 italic">"${order.personal_message}"</p>
+                                </div>
+                                ` : ''}
+                            </div>
+                        ` : `<div class="p-4 bg-yellow-500/10 rounded-2xl text-yellow-500 text-sm">Recipient hasn't accepted or provided address yet.</div>`}
+                    </div>
+
+                    <div class="ml-10 min-w-[200px]">
+                        ${getActionButtons(order)}
+                    </div>
+                `;
+                container.appendChild(div);
+            });
+        }
+
+        function getActionButtons(order) {
+            if (order.status === 'Accepted') {
+                return `<button onclick="updateStatus('${order.id}', 'Out for Delivery')" class="btn-primary w-full py-4 rounded-2xl font-bold shadow-lg shadow-rose-900/40">Start Shipment</button>`;
+            }
+            if (order.status === 'Out for Delivery') {
+                return `<button onclick="updateStatus('${order.id}', 'Delivered')" class="bg-green-600 hover:bg-green-500 w-full py-4 rounded-2xl font-bold shadow-lg shadow-green-900/40 transition-all">Confirm Delivery</button>`;
+            }
+            return `<div class="text-center p-4 border border-white/10 rounded-2xl text-xs text-gray-500 font-bold uppercase">No Actions</div>`;
+        }
+
+        async function updateStatus(id, status) {
+            const { error } = await _supabase.from('physical_gifts').update({ status }).eq('id', id);
+            if (!error) fetchOrders();
+        }
+
+        function getEmoji(item) {
+            const map = { 'Rose': '🌹', 'Chocolate': '🍫', 'Teddy': '🧸', 'Diamond': '💎', 'Coffee': '☕' };
+            return map[item] || '🎁';
+        }
+
+        function getStatusStyle(status) {
+            if (status === 'Accepted') return 'bg-yellow-500/20 text-yellow-500';
+            if (status === 'Delivered') return 'bg-green-500/20 text-green-500';
+            if (status === 'Out for Delivery') return 'bg-blue-500/20 text-blue-500';
+            return 'bg-gray-500/20 text-gray-400';
+        }
+
+        // Check for existing session
+        _supabase.auth.getSession().then(({ data }) => {
+            if (data.session) {
+                enterDashboard();
+            }
+        });
+    </script>
+</body>
+</html>
